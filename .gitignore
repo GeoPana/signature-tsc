@@ -1,0 +1,89 @@
+# =========================================
+# Python
+# =========================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.pyd
+*.dll
+
+# Byte-compiled / optimized / C extensions
+*.pyc
+*.pyo
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# =========================================
+# Virtual environments
+# =========================================
+.venv/
+venv/
+env/
+ENV/
+conda/
+.conda/
+
+# =========================================
+# Jupyter
+# =========================================
+.ipynb_checkpoints/
+*.nbconvert.ipynb
+
+# =========================================
+# Testing / Coverage
+# =========================================
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# =========================================
+# Logs
+# =========================================
+*.log
+logs/
+
+# =========================================
+# IDE / Editor
+# =========================================
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# =========================================
+# OS
+# =========================================
+.DS_Store
+Thumbs.db
+
+# =========================================
+# Project-specific: Data & Results
+# =========================================
+
+# Raw / processed datasets
+data/*
+!data/.gitkeep
+
+# Experiment outputs
+results/*
+!results/.gitkeep
+
+# Optional cache folders
+cache/
+tmp/
+
+# =========================================
+# Misc
+# =========================================
+*.bak
+*.tmp
+*.temp

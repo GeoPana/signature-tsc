@@ -1,0 +1,19 @@
+name: sig-tsc
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - numpy
+  - scipy
+  - pandas
+  - scikit-learn
+  - matplotlib
+  - pyyaml
+  - tqdm
+  - rich
+  - joblib
+  - pytest
+  - jupyterlab
+  - pip:
+      - aeon

@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sigtsc"
+version = "0.1.0"
+description = "Time series classification using (log-)signature features via iisignature."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "numpy",
+  "scipy",
+  "pandas",
+  "scikit-learn",
+  "pyyaml",
+  "tqdm",
+  "rich",
+  "joblib",
+  "aeon",
+  "iisignature",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.scripts]
+sigtsc = "sigtsc.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

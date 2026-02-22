@@ -1,0 +1,15 @@
+seed: 42
+results_dir: results/runs
+
+dataset:
+  name: BasicMotions
+
+features:
+  level: 3
+  with_time: false
+
+model:
+  type: logreg
+  params:
+    C: 1.0
+    max_iter: 5000
