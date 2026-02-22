@@ -13,7 +13,7 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
 from sigtsc.data.loaders import load_dataset
-from sigtsc.features.signature import logsig_features_global
+from sigtsc.features.signature import LogSigWindowConfig, logsig_features
 from sigtsc.utils.io import load_yaml, save_json, save_yaml
 from sigtsc.utils.seed import set_seed
 
@@ -77,9 +77,32 @@ def run_from_config(config_path: str) -> None:
     # Load data
     Xtr_paths, ytr, Xte_paths, yte = load_dataset(dataset_name)
 
-    # Features
-    Xtr = logsig_features_global(Xtr_paths, level=feature_level, with_time=with_time)
-    Xte = logsig_features_global(Xte_paths, level=feature_level, with_time=with_time)
+    # Features (global or multiscale windowed logsig)
+    win_cfg = None
+    pool_ops = cfg["features"].get("pool", ["mean", "max"])
+
+    window_fracs = cfg["features"].get("window_fracs", [])
+    if window_fracs:
+        win_cfg = LogSigWindowConfig(
+            window_fracs=window_fracs,
+            step_frac=float(cfg["features"].get("step_frac", 0.5)),
+            min_window=int(cfg["features"].get("min_window", 8)),
+        )
+
+    Xtr = logsig_features(
+        Xtr_paths,
+        level=feature_level,
+        with_time=with_time,
+        windowing=win_cfg,
+        pool=pool_ops,
+    )
+    Xte = logsig_features(
+        Xte_paths,
+        level=feature_level,
+        with_time=with_time,
+        windowing=win_cfg,
+        pool=pool_ops,
+    )
 
     # Train/eval
     if model_type != "logreg":
@@ -94,6 +117,10 @@ def run_from_config(config_path: str) -> None:
             "type": "logsig",
             "level": feature_level,
             "with_time": with_time,
+            "window_fracs": cfg["features"].get("window_fracs", []),
+            "step_frac": cfg["features"].get("step_frac", None),
+            "min_window": cfg["features"].get("min_window", None),
+            "pool": cfg["features"].get("pool", None),
             "dim": int(Xtr.shape[1]),
         },
         "model": {
