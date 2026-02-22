@@ -1,0 +1,22 @@
+seed: 42
+results_dir: results/runs
+
+dataset:
+  name: ArticularyWordRecognition
+
+# features block is ignored by minirocket (kept for compatibility)
+features:
+  level: 3
+  with_time: false
+  window_fracs: [0.125, 0.25, 1.0]
+  step_frac: 0.5
+  min_window: 8
+  pool: ["mean", "max"]
+
+model:
+  type: minirocket
+  params:
+    n_kernels: 10000
+    max_dilations_per_kernel: 32
+    n_jobs: -1
+    random_state: 42

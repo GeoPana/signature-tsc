@@ -12,6 +12,7 @@ from sklearn.metrics import accuracy_score
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
+from sigtsc.models.baselines import train_eval_minirocket
 from sigtsc.data.loaders import load_dataset
 from sigtsc.features.signature import LogSigWindowConfig, logsig_features
 from sigtsc.utils.io import load_yaml, save_json, save_yaml
@@ -105,15 +106,22 @@ def run_from_config(config_path: str) -> None:
     )
 
     # Train/eval
-    if model_type != "logreg":
-        raise ValueError(f"Minimal slice only supports model.type='logreg'. Got: {model_type}")
+    if model_type == "logreg":
+        acc, metrics = _train_eval_logreg(Xtr, ytr, Xte, yte, model_params)
 
-    acc, metrics = _train_eval_logreg(Xtr, ytr, Xte, yte, model_params)
+    elif model_type == "minirocket":
+        # MiniROCKET works on raw series, not on signature features:
+        res = train_eval_minirocket(Xtr_paths, ytr, Xte_paths, yte, model_params)
+        acc = res.accuracy
+        metrics = {"accuracy": acc}
 
-    out = {
-        "dataset": dataset_name,
-        "seed": seed,
-        "features": {
+    else:
+        raise ValueError(f"Unknown model.type: {model_type}. Supported: 'logreg', 'minirocket'")
+
+    if model_type == "minirocket":
+        features_out = {"type": "raw", "dim": None}
+    else:
+        features_out = {
             "type": "logsig",
             "level": feature_level,
             "with_time": with_time,
@@ -122,7 +130,12 @@ def run_from_config(config_path: str) -> None:
             "min_window": cfg["features"].get("min_window", None),
             "pool": cfg["features"].get("pool", None),
             "dim": int(Xtr.shape[1]),
-        },
+        }
+
+    out = {
+        "dataset": dataset_name,
+        "seed": seed,
+        "features": features_out,
         "model": {
             "type": model_type,
             "params": model_params,

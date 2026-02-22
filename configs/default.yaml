@@ -2,11 +2,11 @@ seed: 42
 results_dir: results/runs
 
 dataset:
-  name: BasicMotions
+  name: ArticularyWordRecognition
 
 features:
-  level: 3
-  with_time: false
+  level: 4
+  with_time: true
 
   # Multiscale windowing:
   # - If empty or omitted => global only.
