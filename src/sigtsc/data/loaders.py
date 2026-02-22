@@ -1,6 +1,13 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Tuple
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+import zipfile
+import tempfile
+import shutil
+import os
 
 import numpy as np
 from aeon.datasets import load_classification
@@ -19,8 +26,8 @@ def _to_list_of_paths_TxC(X: Any) -> list[np.ndarray]:
             xi = np.asarray(xi)
             if xi.ndim != 2:
                 raise ValueError(f"Expected 2D per case, got shape {xi.shape}")
-            # Assume (C, T) if channels smaller than timepoints; else already (T, C)
-            path_TxC = xi.T if xi.shape[0] <= xi.shape[1] else xi
+            # Assume (C, T) -> (T, C)
+            path_TxC = xi.T
             paths.append(path_TxC.astype(np.float64, copy=False))
         return paths
 
@@ -32,9 +39,73 @@ def _to_list_of_paths_TxC(X: Any) -> list[np.ndarray]:
     return [X[i].T.astype(np.float64, copy=False) for i in range(X.shape[0])]
 
 
-def load_dataset(name: str) -> Tuple[list[np.ndarray], np.ndarray, list[np.ndarray], np.ndarray]:
-    X_train, y_train = load_classification(name, split="train")
-    X_test, y_test = load_classification(name, split="test")
+def _download_and_extract_with_headers(dataset: str, cache_dir: str) -> str:
+    """
+    Download https://timeseriesclassification.com/aeon-toolkit/{dataset}.zip
+    using a browser-like User-Agent, then extract into cache_dir/dataset/.
+
+    Returns the dataset directory path (cache_dir/dataset).
+    """
+    url = f"https://timeseriesclassification.com/aeon-toolkit/{dataset}.zip"
+
+    cache_root = Path(cache_dir)
+    cache_root.mkdir(parents=True, exist_ok=True)
+    dataset_dir = cache_root / dataset
+
+    # If already extracted, don't re-download
+    if dataset_dir.exists() and any(dataset_dir.iterdir()):
+        return str(dataset_dir)
+
+    dl_dir = Path(tempfile.mkdtemp())
+    zip_path = dl_dir / f"{dataset}.zip"
+
+    req = Request(
+        url,
+        headers={
+            # Many sites block default Python user agents; emulate a normal browser.
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0 Safari/537.36"
+            )
+        },
+    )
+
+    try:
+        with urlopen(req, timeout=60) as resp, open(zip_path, "wb") as out:
+            out.write(resp.read())
+
+        dataset_dir.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            zf.extractall(dataset_dir)
+
+        return str(dataset_dir)
+    finally:
+        shutil.rmtree(dl_dir, ignore_errors=True)
+
+
+def load_dataset(
+    name: str,
+    cache_dir: str = "data/aeon_cache",
+) -> Tuple[list[np.ndarray], np.ndarray, list[np.ndarray], np.ndarray]:
+    """
+    Load dataset via aeon. If remote download fails with HTTP 401, fall back
+    to manual download (browser-like headers) and then load from local cache.
+    """
+    try:
+        X_train, y_train = load_classification(name, split="train")
+        X_test, y_test = load_classification(name, split="test")
+    except HTTPError as e:
+        if e.code != 401:
+            raise
+        # Fall back: download ourselves into cache_dir and re-load from there
+        _download_and_extract_with_headers(name, cache_dir)
+        X_train, y_train = load_classification(name, split="train", extract_path=cache_dir)
+        X_test, y_test = load_classification(name, split="test", extract_path=cache_dir)
+    except URLError:
+        # Network/DNS issues: try local cache if present
+        X_train, y_train = load_classification(name, split="train", extract_path=cache_dir)
+        X_test, y_test = load_classification(name, split="test", extract_path=cache_dir)
 
     Xtr = _to_list_of_paths_TxC(X_train)
     Xte = _to_list_of_paths_TxC(X_test)
