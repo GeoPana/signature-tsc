@@ -53,23 +53,24 @@ def _train_eval_logreg(
     acc = accuracy_score(yte, pred)
     return acc, {"accuracy": float(acc)}
 
-
-def run_from_config(config_path: str) -> None:
-    cfg = load_yaml(config_path)
-
+def run_one_experiment_dict(cfg: Dict[str, Any]) -> Tuple[Dict[str, Any], Path]:
+    """
+    Run a single experiment given a config dict.
+    Returns: (result_dict, run_dir_path)
+    """
     seed = int(cfg.get("seed", 42))
     set_seed(seed)
 
     results_dir = str(cfg.get("results_dir", "results/runs"))
     paths = _make_run_dir(results_dir)
 
-    # Save config snapshot for reproducibility
+    # Save config snapshot
     save_yaml(paths.config_snapshot_path, cfg)
 
     dataset_name = cfg["dataset"]["name"]
 
-    feature_level = int(cfg["features"].get("level", 3))
-    with_time = bool(cfg["features"].get("with_time", False))
+    feature_level = int(cfg.get("features", {}).get("level", 3))
+    with_time = bool(cfg.get("features", {}).get("with_time", False))
 
     model_cfg = cfg.get("model", {})
     model_type = model_cfg.get("type", "logreg")
@@ -78,57 +79,50 @@ def run_from_config(config_path: str) -> None:
     # Load data
     Xtr_paths, ytr, Xte_paths, yte = load_dataset(dataset_name)
 
-    # Features (global or multiscale windowed logsig)
-    win_cfg = None
-    pool_ops = cfg["features"].get("pool", ["mean", "max"])
-
-    window_fracs = cfg["features"].get("window_fracs", [])
-    if window_fracs:
-        win_cfg = LogSigWindowConfig(
-            window_fracs=window_fracs,
-            step_frac=float(cfg["features"].get("step_frac", 0.5)),
-            min_window=int(cfg["features"].get("min_window", 8)),
-        )
-
-    Xtr = logsig_features(
-        Xtr_paths,
-        level=feature_level,
-        with_time=with_time,
-        windowing=win_cfg,
-        pool=pool_ops,
-    )
-    Xte = logsig_features(
-        Xte_paths,
-        level=feature_level,
-        with_time=with_time,
-        windowing=win_cfg,
-        pool=pool_ops,
-    )
-
-    # Train/eval
-    if model_type == "logreg":
-        acc, metrics = _train_eval_logreg(Xtr, ytr, Xte, yte, model_params)
-
-    elif model_type == "minirocket":
-        # MiniROCKET works on raw series, not on signature features:
+    # If model is minirocket, skip signature features entirely
+    if model_type == "minirocket":
         res = train_eval_minirocket(Xtr_paths, ytr, Xte_paths, yte, model_params)
         acc = res.accuracy
         metrics = {"accuracy": acc}
-
-    else:
-        raise ValueError(f"Unknown model.type: {model_type}. Supported: 'logreg', 'minirocket'")
-
-    if model_type == "minirocket":
         features_out = {"type": "raw", "dim": None}
+
     else:
+        # Signature features
+        win_cfg = None
+        pool_ops = cfg.get("features", {}).get("pool", ["mean", "max"])
+        window_fracs = cfg.get("features", {}).get("window_fracs", [])
+        if window_fracs:
+            win_cfg = LogSigWindowConfig(
+                window_fracs=window_fracs,
+                step_frac=float(cfg.get("features", {}).get("step_frac", 0.5)),
+                min_window=int(cfg.get("features", {}).get("min_window", 8)),
+            )
+
+        Xtr = logsig_features(
+            Xtr_paths,
+            level=feature_level,
+            with_time=with_time,
+            windowing=win_cfg,
+            pool=pool_ops,
+        )
+        Xte = logsig_features(
+            Xte_paths,
+            level=feature_level,
+            with_time=with_time,
+            windowing=win_cfg,
+            pool=pool_ops,
+        )
+
+        acc, metrics = _train_eval_logreg(Xtr, ytr, Xte, yte, model_params)
+
         features_out = {
             "type": "logsig",
             "level": feature_level,
             "with_time": with_time,
-            "window_fracs": cfg["features"].get("window_fracs", []),
-            "step_frac": cfg["features"].get("step_frac", None),
-            "min_window": cfg["features"].get("min_window", None),
-            "pool": cfg["features"].get("pool", None),
+            "window_fracs": cfg.get("features", {}).get("window_fracs", []),
+            "step_frac": cfg.get("features", {}).get("step_frac", None),
+            "min_window": cfg.get("features", {}).get("min_window", None),
+            "pool": cfg.get("features", {}).get("pool", None),
             "dim": int(Xtr.shape[1]),
         }
 
@@ -136,14 +130,15 @@ def run_from_config(config_path: str) -> None:
         "dataset": dataset_name,
         "seed": seed,
         "features": features_out,
-        "model": {
-            "type": model_type,
-            "params": model_params,
-        },
+        "model": {"type": model_type, "params": model_params},
         "metrics": metrics,
     }
 
     save_json(paths.metrics_path, out)
+    return out, paths.run_dir
 
-    print(f"[sigtsc] dataset={dataset_name} acc={acc:.4f}")
-    print(f"[sigtsc] saved: {paths.metrics_path}")
+def run_from_config(config_path: str) -> None:
+    cfg = load_yaml(config_path)
+    out, run_dir = run_one_experiment_dict(cfg)
+    print(f"[sigtsc] dataset={out['dataset']} acc={out['metrics']['accuracy']:.4f}")
+    print(f"[sigtsc] saved: {run_dir / 'metrics.json'}")
