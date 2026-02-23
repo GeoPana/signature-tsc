@@ -17,6 +17,7 @@ from sigtsc.data.loaders import load_dataset
 from sigtsc.features.signature import LogSigWindowConfig, logsig_features
 from sigtsc.utils.io import load_yaml, save_json, save_yaml
 from sigtsc.utils.seed import set_seed
+from sigtsc.utils.git import get_git_commit
 
 
 @dataclass(frozen=True)
@@ -126,9 +127,12 @@ def run_one_experiment_dict(cfg: Dict[str, Any]) -> Tuple[Dict[str, Any], Path]:
             "dim": int(Xtr.shape[1]),
         }
 
+    git_commit = get_git_commit()
+
     out = {
         "dataset": dataset_name,
         "seed": seed,
+        "git_commit": git_commit,
         "features": features_out,
         "model": {"type": model_type, "params": model_params},
         "metrics": metrics,
