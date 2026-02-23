@@ -1,0 +1,20 @@
+seed: 42
+results_dir: results/runs
+
+dataset:
+  name: Epilepsy
+
+features:
+  level: 2
+  with_time: true
+  lead_lag: true
+  window_fracs: [0.03, 0.06, 0.12]
+  step_frac: 0.25
+  min_window: 12
+  pool: ["mean", "max", "std"]
+
+model:
+  type: logreg
+  params:
+    C: 0.1
+    max_iter: 5000

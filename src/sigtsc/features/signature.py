@@ -6,6 +6,8 @@ from typing import Iterable, List, Sequence
 import numpy as np
 import iisignature
 
+from sigtsc.features.augmentations import lead_lag
+
 
 def znormalize(path_TxC: np.ndarray, eps: float = 1e-8) -> np.ndarray:
     """Per-channel z-normalization of a (T, C) path."""
@@ -13,13 +15,19 @@ def znormalize(path_TxC: np.ndarray, eps: float = 1e-8) -> np.ndarray:
     sd = path_TxC.std(axis=0, keepdims=True)
     return (path_TxC - mu) / (sd + eps)
 
+def _preprocess_path(path: np.ndarray, with_time: bool, lead_lag_flag: bool) -> np.ndarray:
+    # path is (T, C)
+    x = path.astype(np.float64, copy=False)
 
-def add_time_channel(path_TxC: np.ndarray) -> np.ndarray:
-    """Append normalized time in [0,1] as an extra channel."""
-    T = path_TxC.shape[0]
-    t = np.linspace(0.0, 1.0, T, dtype=path_TxC.dtype).reshape(T, 1)
-    return np.concatenate([path_TxC, t], axis=1)
+    if with_time:
+        T = x.shape[0]
+        t = np.linspace(0.0, 1.0, T, dtype=x.dtype).reshape(T, 1)
+        x = np.concatenate([t, x], axis=1)
 
+    if lead_lag_flag:
+        x = lead_lag(x)
+
+    return x
 
 def _validate_pool(pool: Sequence[str]) -> List[str]:
     allowed = {"mean", "max", "std"}
@@ -81,6 +89,7 @@ def logsig_features(
     paths: list[np.ndarray],
     level: int = 3,
     with_time: bool = False,
+    lead_lag: bool = False,
     windowing: LogSigWindowConfig | None = None,
     pool: Sequence[str] = ("mean", "max"),
 ) -> np.ndarray:
@@ -104,9 +113,11 @@ def logsig_features(
 
     pool_ops = _validate_pool(pool)
 
-    # Determine dimension after optional time channel
-    d0 = paths[0].shape[1] + (1 if with_time else 0)
-    s = iisignature.prepare(d0, int(level))
+    # Determine final dimension AFTER with_time and lead_lag
+    base_d = paths[0].shape[1] + (1 if with_time else 0)
+    final_d = base_d * (2 if lead_lag else 1)
+
+    s = iisignature.prepare(int(final_d), int(level))
 
     def logsig_one(seg: np.ndarray) -> np.ndarray:
         # iisignature expects (T, d) float array
@@ -119,10 +130,21 @@ def logsig_features(
         if path.ndim != 2:
             raise ValueError(f"Expected (T,C), got shape {path.shape}")
 
+        # Start from float
         p = path.astype(np.float64, copy=False)
+
+        # Normalize ORIGINAL channels (before time and lead-lag)
         p = znormalize(p)
-        if with_time:
-            p = add_time_channel(p)
+
+        # Preprocess the normalized path 
+        p = _preprocess_path(p, with_time=with_time, lead_lag_flag=lead_lag)
+
+        # Sanity check (helps catch dimension mismatches early)
+        if p.shape[1] != final_d:
+            raise RuntimeError(
+                f"Preprocess produced dim={p.shape[1]} but expected dim={final_d}. "
+                f"(with_time={with_time}, lead_lag={lead_lag})"
+            )
 
         if not use_windowing:
             feats_all.append(logsig_one(p))

@@ -72,6 +72,7 @@ def run_one_experiment_dict(cfg: Dict[str, Any]) -> Tuple[Dict[str, Any], Path]:
 
     feature_level = int(cfg.get("features", {}).get("level", 3))
     with_time = bool(cfg.get("features", {}).get("with_time", False))
+    lead_lag = bool(cfg.get("features", {}).get("lead_lag", False))
 
     model_cfg = cfg.get("model", {})
     model_type = model_cfg.get("type", "logreg")
@@ -103,6 +104,7 @@ def run_one_experiment_dict(cfg: Dict[str, Any]) -> Tuple[Dict[str, Any], Path]:
             Xtr_paths,
             level=feature_level,
             with_time=with_time,
+            lead_lag=lead_lag,
             windowing=win_cfg,
             pool=pool_ops,
         )
@@ -110,6 +112,7 @@ def run_one_experiment_dict(cfg: Dict[str, Any]) -> Tuple[Dict[str, Any], Path]:
             Xte_paths,
             level=feature_level,
             with_time=with_time,
+            lead_lag=lead_lag,
             windowing=win_cfg,
             pool=pool_ops,
         )
@@ -120,6 +123,7 @@ def run_one_experiment_dict(cfg: Dict[str, Any]) -> Tuple[Dict[str, Any], Path]:
             "type": "logsig",
             "level": feature_level,
             "with_time": with_time,
+            "lead_lag": lead_lag,
             "window_fracs": cfg.get("features", {}).get("window_fracs", []),
             "step_frac": cfg.get("features", {}).get("step_frac", None),
             "min_window": cfg.get("features", {}).get("min_window", None),

@@ -1,0 +1,261 @@
+seed: 42
+results_dir: results/suites
+
+suite:
+  name: mtsc_5_v2
+
+  datasets:
+    - BasicMotions
+    - ArticularyWordRecognition
+    - CharacterTrajectories
+    - NATOPS
+    - Epilepsy
+
+  # We encode "sweeps" by creating multiple variants that differ only in a parameter.
+  # The suite runner will run every variant on every dataset.
+  variants:
+
+    # -------------------------
+    # Baseline: MiniROCKET
+    # -------------------------
+    - name: minirocket
+      model:
+        type: minirocket
+        params:
+          n_kernels: 10000
+          max_dilations_per_kernel: 32
+          n_jobs: -1
+          random_state: 42
+
+    # ============================================================
+    # Signature Variant A: motion / trajectory friendly
+    # ============================================================
+    - name: sigA_L3_time_C0.3
+      features:
+        level: 3
+        with_time: true
+        lead_lag: false
+        window_fracs: [0.125, 0.25, 1.0]
+        step_frac: 0.5
+        min_window: 8
+        pool: ["mean", "max"]
+      model:
+        type: logreg
+        params:
+          C: 0.3
+          max_iter: 5000
+
+    - name: sigA_L3_time_C1
+      features:
+        level: 3
+        with_time: true
+        lead_lag: false
+        window_fracs: [0.125, 0.25, 1.0]
+        step_frac: 0.5
+        min_window: 8
+        pool: ["mean", "max"]
+      model:
+        type: logreg
+        params:
+          C: 1.0
+          max_iter: 5000
+
+    - name: sigA_L3_time_C3
+      features:
+        level: 3
+        with_time: true
+        lead_lag: false
+        window_fracs: [0.125, 0.25, 1.0]
+        step_frac: 0.5
+        min_window: 8
+        pool: ["mean", "max"]
+      model:
+        type: logreg
+        params:
+          C: 3.0
+          max_iter: 5000
+
+    # ============================================================
+    # Signature Variant B: high-channel / activity (controls explosion)
+    # - lower level
+    # - more local windows
+    # - more overlap
+    # ============================================================
+    - name: sigB_L2_time_local_C0.1
+      features:
+        level: 2
+        with_time: true
+        lead_lag: false
+        window_fracs: [0.05, 0.10, 0.20]
+        step_frac: 0.25
+        min_window: 12
+        pool: ["mean", "max"]
+      model:
+        type: logreg
+        params:
+          C: 0.1
+          max_iter: 5000
+
+    - name: sigB_L2_time_local_C0.3
+      features:
+        level: 2
+        with_time: true
+        lead_lag: false
+        window_fracs: [0.05, 0.10, 0.20]
+        step_frac: 0.25
+        min_window: 12
+        pool: ["mean", "max"]
+      model:
+        type: logreg
+        params:
+          C: 0.3
+          max_iter: 5000
+
+    - name: sigB_L2_time_local_C1
+      features:
+        level: 2
+        with_time: true
+        lead_lag: false
+        window_fracs: [0.05, 0.10, 0.20]
+        step_frac: 0.25
+        min_window: 12
+        pool: ["mean", "max"]
+      model:
+        type: logreg
+        params:
+          C: 1.0
+          max_iter: 5000
+
+    # ============================================================
+    # Signature Variant C: noisy / motif-like
+    # - very local windows
+    # - include std pooling (captures variability)
+    # - test both with_time True/False (timing may hurt/help)
+    # ============================================================
+    - name: sigC_L2_notime_vlocal_std_C0.03
+      features:
+        level: 2
+        with_time: false
+        lead_lag: false
+        window_fracs: [0.03, 0.06, 0.12]
+        step_frac: 0.25
+        min_window: 12
+        pool: ["mean", "max", "std"]
+      model:
+        type: logreg
+        params:
+          C: 0.03
+          max_iter: 5000
+
+    - name: sigC_L2_notime_vlocal_std_C0.1
+      features:
+        level: 2
+        with_time: false
+        lead_lag: false
+        window_fracs: [0.03, 0.06, 0.12]
+        step_frac: 0.25
+        min_window: 12
+        pool: ["mean", "max", "std"]
+      model:
+        type: logreg
+        params:
+          C: 0.1
+          max_iter: 5000
+
+    - name: sigC_L2_notime_vlocal_std_C0.3
+      features:
+        level: 2
+        with_time: false
+        lead_lag: false
+        window_fracs: [0.03, 0.06, 0.12]
+        step_frac: 0.25
+        min_window: 12
+        pool: ["mean", "max", "std"]
+      model:
+        type: logreg
+        params:
+          C: 0.3
+          max_iter: 5000
+
+    - name: sigC_L2_time_vlocal_std_C0.03
+      features:
+        level: 2
+        with_time: true
+        lead_lag: false
+        window_fracs: [0.03, 0.06, 0.12]
+        step_frac: 0.25
+        min_window: 12
+        pool: ["mean", "max", "std"]
+      model:
+        type: logreg
+        params:
+          C: 0.03
+          max_iter: 5000
+
+    - name: sigC_L2_time_vlocal_std_C0.1
+      features:
+        level: 2
+        with_time: true
+        lead_lag: false
+        window_fracs: [0.03, 0.06, 0.12]
+        step_frac: 0.25
+        min_window: 12
+        pool: ["mean", "max", "std"]
+      model:
+        type: logreg
+        params:
+          C: 0.1
+          max_iter: 5000
+
+    - name: sigC_L2_time_vlocal_std_C0.3
+      features:
+        level: 2
+        with_time: true
+        lead_lag: false
+        window_fracs: [0.03, 0.06, 0.12]
+        step_frac: 0.25
+        min_window: 12
+        pool: ["mean", "max", "std"]
+      model:
+        type: logreg
+        params:
+          C: 0.3
+          max_iter: 5000
+
+    # ============================================================
+    # Signature Variant D: Lead–Lag (noisy / motif regime)
+    # Based on best Epilepsy config
+    # ============================================================
+    - name: sigD_LL_L2_time_vlocal_std_C0.1
+      features:
+        level: 2
+        with_time: true
+        lead_lag: true
+        window_fracs: [0.03, 0.06, 0.12]
+        step_frac: 0.25
+        min_window: 12
+        pool: ["mean", "max", "std"]
+      model:
+        type: logreg
+        params:
+          C: 0.1
+          max_iter: 5000
+
+    # ============================================================
+    # Signature Variant E: Lead–Lag (activity / high-channel regime)
+    # Target NATOPS-like signals
+    # ============================================================
+    - name: sigE_LL_L2_time_local_C0.1
+      features:
+        level: 2
+        with_time: true
+        lead_lag: true
+        window_fracs: [0.05, 0.10]
+        step_frac: 0.25
+        min_window: 12
+        pool: ["mean", "max"]
+      model:
+        type: logreg
+        params:
+          C: 0.1
+          max_iter: 5000
