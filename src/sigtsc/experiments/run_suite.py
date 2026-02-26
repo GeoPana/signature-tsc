@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import json
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -92,6 +93,7 @@ def run_suite_from_config(config_path: str) -> None:
             # Build a single-experiment config dict compatible with the normal runner
             exp_cfg: Dict[str, Any] = {
                 "seed": seed,
+                "variant": variant_name,
                 "results_dir": str(paths.suite_dir / "runs"),
                 "dataset": {"name": ds},
                 # features may be missing for minirocket; runner handles it
@@ -149,7 +151,7 @@ def run_suite_from_config(config_path: str) -> None:
     # Save JSONL (one record per run) for easy parsing later
     with open(paths.results_jsonl, "w", encoding="utf-8") as f:
         for rec in jsonl_lines:
-            f.write(str(rec).replace("'", '"') + "\n")
+            f.write(json.dumps(rec) + "\n")
 
     print(f"[sigtsc] Suite complete.")
-    print(f"[sigtsc] Summary CSV: {paths.summary_csv}")
+    print(f"[sigtsc] Summary CSV: {paths.summary_csv}") 

@@ -1,0 +1,67 @@
+seed: 42
+results_dir: results/suites
+
+suite:
+  name: stress_warp_shift
+
+  datasets:
+    - CharacterTrajectories
+    - CharacterTrajectories@warp=0.20
+    - CharacterTrajectories@shift=0.20
+    - NATOPS
+    - NATOPS@warp=0.20
+    - NATOPS@shift=0.20
+
+  variants:
+    - name: minirocket
+      model:
+        type: minirocket
+        params:
+          n_kernels: 10000
+          max_dilations_per_kernel: 32
+          n_jobs: -1
+          random_state: 42
+
+    # Signature: warp-friendly setting (no time)
+    - name: sig_nowarp_timeFalse_L3_C1
+      features:
+        level: 3
+        with_time: false
+        window_fracs: [0.125, 0.25, 1.0]
+        step_frac: 0.5
+        min_window: 8
+        pool: ["mean", "max"]
+      model:
+        type: logreg
+        params:
+          C: 1.0
+          max_iter: 5000
+
+    # Signature: local + lead-lag (often robust)
+    - name: sig_LL_local_L2_C0.1
+      features:
+        level: 2
+        with_time: true
+        lead_lag: true
+        window_fracs: [0.05, 0.10, 0.20]
+        step_frac: 0.25
+        min_window: 12
+        pool: ["mean", "max"]
+      model:
+        type: logreg
+        params:
+          C: 0.1
+          max_iter: 5000
+
+    
+    # Signature: global (no time)
+    - name: sig_global_L3_noTime
+      features:
+        level: 3
+        with_time: false
+        window_fracs: null
+      model:
+        type: logreg
+        params:
+          C: 1.0
+          max_iter: 5000

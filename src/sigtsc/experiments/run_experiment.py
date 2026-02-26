@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -12,12 +11,12 @@ from sklearn.metrics import accuracy_score
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-from sigtsc.models.baselines import train_eval_minirocket
 from sigtsc.data.loaders import load_dataset
 from sigtsc.features.signature import LogSigWindowConfig, logsig_features
+from sigtsc.models.baselines import train_eval_minirocket
+from sigtsc.utils.git import get_git_commit
 from sigtsc.utils.io import load_yaml, save_json, save_yaml
 from sigtsc.utils.seed import set_seed
-from sigtsc.utils.git import get_git_commit
 
 
 @dataclass(frozen=True)
@@ -39,7 +38,11 @@ def _make_run_dir(results_dir: str) -> RunPaths:
 
 
 def _train_eval_logreg(
-    Xtr: np.ndarray, ytr: np.ndarray, Xte: np.ndarray, yte: np.ndarray, params: Dict[str, Any]
+    Xtr: np.ndarray,
+    ytr: np.ndarray,
+    Xte: np.ndarray,
+    yte: np.ndarray,
+    params: Dict[str, Any],
 ) -> Tuple[float, Dict[str, Any]]:
     clf = make_pipeline(
         StandardScaler(),
@@ -53,6 +56,7 @@ def _train_eval_logreg(
     pred = clf.predict(Xte)
     acc = accuracy_score(yte, pred)
     return acc, {"accuracy": float(acc)}
+
 
 def run_one_experiment_dict(cfg: Dict[str, Any]) -> Tuple[Dict[str, Any], Path]:
     """
@@ -68,44 +72,61 @@ def run_one_experiment_dict(cfg: Dict[str, Any]) -> Tuple[Dict[str, Any], Path]:
     # Save config snapshot
     save_yaml(paths.config_snapshot_path, cfg)
 
+    # ------------------------------------------------------------------
+    # Load data
+    #
+    # NOTE: load_dataset now supports transform specs in dataset name:
+    #   "NATOPS@warp=0.20" etc.
+    # ------------------------------------------------------------------
     dataset_name = cfg["dataset"]["name"]
+    Xtr_paths, ytr, Xte_paths, yte = load_dataset(dataset_name, seed=seed)
 
-    feature_level = int(cfg.get("features", {}).get("level", 3))
-    with_time = bool(cfg.get("features", {}).get("with_time", False))
-    lead_lag = bool(cfg.get("features", {}).get("lead_lag", False))
-
+    # ------------------------------------------------------------------
+    # Model config
+    # ------------------------------------------------------------------
     model_cfg = cfg.get("model", {})
     model_type = model_cfg.get("type", "logreg")
     model_params = model_cfg.get("params", {})
 
-    # Load data
-    Xtr_paths, ytr, Xte_paths, yte = load_dataset(dataset_name)
-
-    # If model is minirocket, skip signature features entirely
+    # ------------------------------------------------------------------
+    # If model is MiniROCKET, skip signature features
+    # ------------------------------------------------------------------
     if model_type == "minirocket":
         res = train_eval_minirocket(Xtr_paths, ytr, Xte_paths, yte, model_params)
-        acc = res.accuracy
+        acc = float(res.accuracy)
         metrics = {"accuracy": acc}
         features_out = {"type": "raw", "dim": None}
 
     else:
-        # Signature features
-        win_cfg = None
-        pool_ops = cfg.get("features", {}).get("pool", ["mean", "max"])
-        window_fracs = cfg.get("features", {}).get("window_fracs", [])
-        if window_fracs:
-            win_cfg = LogSigWindowConfig(
+        # ------------------------------------------------------------------
+        # Signature features config
+        # ------------------------------------------------------------------
+        feats = cfg.get("features", {})
+        feature_level = int(feats.get("level", 3))
+        with_time = bool(feats.get("with_time", False))
+        lead_lag = bool(feats.get("lead_lag", False))
+        pool_ops = feats.get("pool", ["mean", "max"])
+
+        # IMPORTANT:
+        # window_fracs == None => GLOBAL (no windowing)
+        # window_fracs == list => multiscale windowing
+        window_fracs = feats.get("window_fracs", None)
+        if window_fracs is None:
+            windowing = None
+        else:
+            windowing = LogSigWindowConfig(
                 window_fracs=window_fracs,
-                step_frac=float(cfg.get("features", {}).get("step_frac", 0.5)),
-                min_window=int(cfg.get("features", {}).get("min_window", 8)),
+                step_frac=float(feats.get("step_frac", 0.5)),
+                min_window=int(feats.get("min_window", 8)),
             )
 
+        # Compute signature features
         Xtr = logsig_features(
             Xtr_paths,
             level=feature_level,
             with_time=with_time,
             lead_lag=lead_lag,
-            windowing=win_cfg,
+            windowing=windowing,
             pool=pool_ops,
         )
         Xte = logsig_features(
@@ -113,21 +134,22 @@ def run_one_experiment_dict(cfg: Dict[str, Any]) -> Tuple[Dict[str, Any], Path]:
             level=feature_level,
             with_time=with_time,
             lead_lag=lead_lag,
-            windowing=win_cfg,
+            windowing=windowing,
             pool=pool_ops,
         )
 
         acc, metrics = _train_eval_logreg(Xtr, ytr, Xte, yte, model_params)
 
+        # Record features used
         features_out = {
             "type": "logsig",
             "level": feature_level,
             "with_time": with_time,
             "lead_lag": lead_lag,
-            "window_fracs": cfg.get("features", {}).get("window_fracs", []),
-            "step_frac": cfg.get("features", {}).get("step_frac", None),
-            "min_window": cfg.get("features", {}).get("min_window", None),
-            "pool": cfg.get("features", {}).get("pool", None),
+            "window_fracs": window_fracs,  # can be None for global
+            "step_frac": feats.get("step_frac", None),
+            "min_window": feats.get("min_window", None),
+            "pool": feats.get("pool", None),
             "dim": int(Xtr.shape[1]),
         }
 
@@ -140,10 +162,13 @@ def run_one_experiment_dict(cfg: Dict[str, Any]) -> Tuple[Dict[str, Any], Path]:
         "features": features_out,
         "model": {"type": model_type, "params": model_params},
         "metrics": metrics,
+        # suite runner should set cfg["variant"] when looping
+        "variant": cfg.get("variant", None),
     }
 
     save_json(paths.metrics_path, out)
     return out, paths.run_dir
+
 
 def run_from_config(config_path: str) -> None:
     cfg = load_yaml(config_path)

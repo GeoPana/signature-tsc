@@ -12,6 +12,7 @@ import os
 import numpy as np
 from aeon.datasets import load_classification
 
+from sigtsc.data.transforms import parse_dataset_spec, apply_transforms
 
 def _to_list_of_paths_TxC(X: Any) -> list[np.ndarray]:
     """
@@ -87,28 +88,45 @@ def _download_and_extract_with_headers(dataset: str, cache_dir: str) -> str:
 def load_dataset(
     name: str,
     cache_dir: str = "data/aeon_cache",
+    seed: int = 42,
 ) -> Tuple[list[np.ndarray], np.ndarray, list[np.ndarray], np.ndarray]:
     """
-    Load dataset via aeon. If remote download fails with HTTP 401, fall back
-    to manual download (browser-like headers) and then load from local cache.
+    Load dataset via aeon.
+
+    Supports transform specs in dataset string, e.g.:
+      - "NATOPS@warp=0.20"
+      - "CharacterTrajectories@shift=0.20"
+      - "X@warp=0.20,shift=0.10,noise=0.05"
+
+    If remote download fails with HTTP 401, fall back to manual download
+    (browser-like headers) and then load from local cache.
+
+    Transforms are applied deterministically using `seed` (separate train/test seeds).
     """
+    base_name, tf_spec = parse_dataset_spec(name)
+
     try:
-        X_train, y_train = load_classification(name, split="train")
-        X_test, y_test = load_classification(name, split="test")
+        X_train, y_train = load_classification(base_name, split="train")
+        X_test, y_test = load_classification(base_name, split="test")
     except HTTPError as e:
         if e.code != 401:
             raise
         # Fall back: download ourselves into cache_dir and re-load from there
-        _download_and_extract_with_headers(name, cache_dir)
-        X_train, y_train = load_classification(name, split="train", extract_path=cache_dir)
-        X_test, y_test = load_classification(name, split="test", extract_path=cache_dir)
+        _download_and_extract_with_headers(base_name, cache_dir)
+        X_train, y_train = load_classification(base_name, split="train", extract_path=cache_dir)
+        X_test, y_test = load_classification(base_name, split="test", extract_path=cache_dir)
     except URLError:
         # Network/DNS issues: try local cache if present
-        X_train, y_train = load_classification(name, split="train", extract_path=cache_dir)
-        X_test, y_test = load_classification(name, split="test", extract_path=cache_dir)
+        X_train, y_train = load_classification(base_name, split="train", extract_path=cache_dir)
+        X_test, y_test = load_classification(base_name, split="test", extract_path=cache_dir)
 
     Xtr = _to_list_of_paths_TxC(X_train)
     Xte = _to_list_of_paths_TxC(X_test)
+
+    # Apply transforms after conversion to list of (T,C) arrays
+    if tf_spec.warp is not None or tf_spec.shift is not None or tf_spec.noise is not None:
+        Xtr = apply_transforms(Xtr, tf_spec, seed + 101)
+        Xte = apply_transforms(Xte, tf_spec, seed + 202)
 
     ytr = np.asarray(y_train)
     yte = np.asarray(y_test)

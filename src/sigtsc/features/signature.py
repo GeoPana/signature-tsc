@@ -123,7 +123,7 @@ def logsig_features(
         # iisignature expects (T, d) float array
         return iisignature.logsig(seg, s)
 
-    use_windowing = windowing is not None and len(windowing.window_fracs) > 0
+    use_windowing = windowing is not None and windowing.window_fracs is not None and len(windowing.window_fracs) > 0
 
     feats_all = []
     for path in paths:
