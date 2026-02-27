@@ -2,14 +2,14 @@ seed: 42
 results_dir: results/suites
 
 suite:
-  name: stress_grid_v1
+  name: stress_grid
 
   datasets:
     # Clean
     - CharacterTrajectories
     - NATOPS
 
-    # Warp grid (two decimals, consistent)
+    # Warp grid
     - CharacterTrajectories@warp=0.10
     - CharacterTrajectories@warp=0.20
     - CharacterTrajectories@warp=0.40
@@ -20,7 +20,7 @@ suite:
     - NATOPS@warp=0.40
     - NATOPS@warp=0.60
 
-    # Shift grid (two decimals, consistent)
+    # Shift grid
     - CharacterTrajectories@shift=0.05
     - CharacterTrajectories@shift=0.10
     - CharacterTrajectories@shift=0.20
@@ -32,6 +32,7 @@ suite:
     - NATOPS@shift=0.40
 
   variants:
+
     - name: minirocket
       model:
         type: minirocket
@@ -41,14 +42,11 @@ suite:
           n_jobs: -1
           random_state: 42
 
-    - name: sig_nowarp_timeFalse_L3_C1
+    - name: sig_global_L3_noTime
       features:
         level: 3
         with_time: false
-        window_fracs: [0.125, 0.25, 1.0]
-        step_frac: 0.5
-        min_window: 8
-        pool: ["mean", "max"]
+        window_fracs: null
       model:
         type: logreg
         params:
@@ -60,7 +58,7 @@ suite:
         level: 2
         with_time: true
         lead_lag: true
-        window_fracs: [0.05, 0.10, 0.20]
+        window_fracs: [0.05, 0.1, 0.2]
         step_frac: 0.25
         min_window: 12
         pool: ["mean", "max"]
@@ -68,15 +66,4 @@ suite:
         type: logreg
         params:
           C: 0.1
-          max_iter: 5000
-
-    - name: sig_global_L3_noTime
-      features:
-        level: 3
-        with_time: false
-        window_fracs: null
-      model:
-        type: logreg
-        params:
-          C: 1.0
           max_iter: 5000

@@ -5,9 +5,10 @@ import json
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 
 from sigtsc.experiments.run_experiment import run_one_experiment_dict
+from sigtsc.experiments.aggregate_results import aggregate_results
 from sigtsc.utils.io import load_yaml, save_json, save_yaml
 
 
@@ -17,6 +18,14 @@ class SuitePaths:
     summary_csv: Path
     suite_config_snapshot: Path
     results_jsonl: Path
+    agg_dir: Path
+    agg_summary_csv: Path
+    agg_report_csv: Path
+    agg_robustness_csv: Path
+    agg_winners_csv: Path
+    status_running: Path
+    status_done: Path
+    status_failed: Path
 
 
 def _make_suite_dir(results_dir: str, suite_name: str) -> SuitePaths:
@@ -24,11 +33,22 @@ def _make_suite_dir(results_dir: str, suite_name: str) -> SuitePaths:
     suite_dir = Path(results_dir) / f"{suite_name}_{ts}"
     suite_dir.mkdir(parents=True, exist_ok=True)
 
+    agg_dir = suite_dir / "agg"
+    agg_dir.mkdir(parents=True, exist_ok=True)
+
     return SuitePaths(
         suite_dir=suite_dir,
         summary_csv=suite_dir / "summary.csv",
         suite_config_snapshot=suite_dir / "suite_config_snapshot.yaml",
         results_jsonl=suite_dir / "results.jsonl",
+        agg_dir=agg_dir,
+        agg_summary_csv=agg_dir / "summary.csv",
+        agg_report_csv=agg_dir / "report.csv",
+        agg_robustness_csv=agg_dir / "robustness.csv",
+        agg_winners_csv=agg_dir / "robustness_winners.csv",
+        status_running=suite_dir / "STATUS_RUNNING",
+        status_done=suite_dir / "STATUS_DONE",
+        status_failed=suite_dir / "STATUS_FAILED",
     )
 
 
@@ -36,7 +56,6 @@ def _write_summary_csv(path: Path, rows: List[Dict[str, Any]]) -> None:
     if not rows:
         return
     path.parent.mkdir(parents=True, exist_ok=True)
-    # Stable column order (common keys first)
     preferred = [
         "suite",
         "dataset",
@@ -51,7 +70,6 @@ def _write_summary_csv(path: Path, rows: List[Dict[str, Any]]) -> None:
         "accuracy",
         "run_dir",
     ]
-    # Include any extra keys at end
     all_keys = set().union(*(r.keys() for r in rows))
     cols = preferred + [k for k in sorted(all_keys) if k not in preferred]
 
@@ -62,9 +80,37 @@ def _write_summary_csv(path: Path, rows: List[Dict[str, Any]]) -> None:
             w.writerow(r)
 
 
+def _touch(path: Path, text: str | None = None) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("" if text is None else text, encoding="utf-8")
+
+
+def _aggregate_suite(paths: SuitePaths) -> None:
+    runs_root = str(paths.suite_dir / "runs")
+    aggregate_results(
+        results_root=runs_root,
+        out_summary_csv=str(paths.agg_summary_csv),
+        out_report_csv=str(paths.agg_report_csv),
+        out_robustness_csv=str(paths.agg_robustness_csv),
+        out_robustness_winners_csv=str(paths.agg_winners_csv),
+    )
+
+
+def _safe_name(s: str) -> str:
+    return (
+        str(s)
+        .replace("\\", "_")
+        .replace("/", "_")
+        .replace(":", "_")
+        .replace("@", "_at_")
+        .replace(",", "_")
+        .replace("=", "_")
+        .replace(" ", "")
+    )
+
+
 def run_suite_from_config(config_path: str) -> None:
     cfg = load_yaml(config_path)
-
     if "suite" not in cfg:
         raise ValueError("Suite config must contain a top-level 'suite' key.")
 
@@ -77,81 +123,113 @@ def run_suite_from_config(config_path: str) -> None:
 
     paths = _make_suite_dir(results_dir, suite_name)
 
-    # Snapshot suite config for reproducibility
+    _touch(paths.status_running, text=f"started_at={datetime.now().isoformat()}\n")
     save_yaml(paths.suite_config_snapshot, cfg)
 
     summary_rows: List[Dict[str, Any]] = []
     jsonl_lines: List[Dict[str, Any]] = []
+    failed_any = False
 
     print(f"[sigtsc] Running suite '{suite_name}'")
     print(f"[sigtsc] Datasets: {len(datasets)} | Variants: {len(variants)}")
     print(f"[sigtsc] Output: {paths.suite_dir}")
 
-    for ds in datasets:
-        for v in variants:
-            variant_name = str(v.get("name", "variant"))
-            # Build a single-experiment config dict compatible with the normal runner
-            exp_cfg: Dict[str, Any] = {
-                "seed": seed,
-                "variant": variant_name,
-                "results_dir": str(paths.suite_dir / "runs"),
-                "dataset": {"name": ds},
-                # features may be missing for minirocket; runner handles it
-                "features": v.get("features", cfg.get("features", {})),
-                "model": v.get("model", cfg.get("model", {})),
-            }
+    try:
+        for ds in datasets:
+            for v in variants:
+                variant_name = str(v.get("name", "variant"))
 
-            print(f"[sigtsc] -> dataset={ds} variant={variant_name}")
+                # Prevent collisions: separate dirs per dataset+variant
+                runs_root = paths.suite_dir / "runs" / _safe_name(ds) / _safe_name(variant_name)
 
-            try:
-                out, run_dir = run_one_experiment_dict(exp_cfg)
-                # out is the same dict you write to metrics.json in single runs
-                acc = float(out["metrics"]["accuracy"])
-                features = out.get("features", {})
-                model = out.get("model", {})
-
-                row = {
-                    "suite": suite_name,
-                    "dataset": ds,
+                exp_cfg: Dict[str, Any] = {
+                    "seed": seed,
                     "variant": variant_name,
-                    "model_type": model.get("type"),
-                    "features_type": features.get("type"),
-                    "level": features.get("level"),
-                    "with_time": features.get("with_time"),
-                    "window_fracs": features.get("window_fracs"),
-                    "pool": features.get("pool"),
-                    "dim": features.get("dim"),
-                    "accuracy": acc,
-                    "run_dir": str(run_dir),
+                    "results_dir": str(runs_root),
+                    "dataset": {"name": ds},
+                    "features": v.get("features", cfg.get("features", {})),
+                    "model": v.get("model", cfg.get("model", {})),
                 }
-                summary_rows.append(row)
 
-                jsonl_rec = {"suite": suite_name, "dataset": ds, "variant": variant_name, **out, "run_dir": str(run_dir)}
-                jsonl_lines.append(jsonl_rec)
+                print(f"[sigtsc] -> dataset={ds} variant={variant_name}")
 
-            except Exception as e:
-                # Do not crash the whole suite; record failure
-                row = {
-                    "suite": suite_name,
-                    "dataset": ds,
-                    "variant": variant_name,
-                    "model_type": exp_cfg.get("model", {}).get("type"),
-                    "features_type": exp_cfg.get("features", {}).get("type", "logsig"),
-                    "accuracy": None,
-                    "run_dir": None,
-                    "error": repr(e),
-                }
-                summary_rows.append(row)
-                print(f"[sigtsc] !! failed dataset={ds} variant={variant_name}: {e}")
+                try:
+                    out, run_dir = run_one_experiment_dict(exp_cfg)
+                    acc = float(out["metrics"]["accuracy"])
+                    features = out.get("features", {})
+                    model = out.get("model", {})
 
-    # Save outputs
-    _write_summary_csv(paths.summary_csv, summary_rows)
-    save_json(paths.suite_dir / "summary.json", {"rows": summary_rows})
+                    summary_rows.append(
+                        {
+                            "suite": suite_name,
+                            "dataset": ds,
+                            "variant": variant_name,
+                            "model_type": model.get("type"),
+                            "features_type": features.get("type"),
+                            "level": features.get("level"),
+                            "with_time": features.get("with_time"),
+                            "window_fracs": features.get("window_fracs"),
+                            "pool": features.get("pool"),
+                            "dim": features.get("dim"),
+                            "accuracy": acc,
+                            "run_dir": str(run_dir),
+                        }
+                    )
 
-    # Save JSONL (one record per run) for easy parsing later
-    with open(paths.results_jsonl, "w", encoding="utf-8") as f:
-        for rec in jsonl_lines:
-            f.write(json.dumps(rec) + "\n")
+                    jsonl_lines.append(
+                        {
+                            "suite": suite_name,
+                            "dataset": ds,
+                            "variant": variant_name,
+                            **out,
+                            "run_dir": str(run_dir),
+                        }
+                    )
+
+                except Exception as e:
+                    failed_any = True
+                    summary_rows.append(
+                        {
+                            "suite": suite_name,
+                            "dataset": ds,
+                            "variant": variant_name,
+                            "model_type": exp_cfg.get("model", {}).get("type"),
+                            "features_type": exp_cfg.get("features", {}).get("type", "logsig"),
+                            "accuracy": None,
+                            "run_dir": None,
+                            "error": repr(e),
+                        }
+                    )
+                    print(f"[sigtsc] !! failed dataset={ds} variant={variant_name}: {e}")
+
+    finally:
+        _write_summary_csv(paths.summary_csv, summary_rows)
+        save_json(paths.suite_dir / "summary.json", {"rows": summary_rows})
+
+        with open(paths.results_jsonl, "w", encoding="utf-8") as f:
+            for rec in jsonl_lines:
+                f.write(json.dumps(rec) + "\n")
+
+        try:
+            _aggregate_suite(paths)
+            print(f"[sigtsc] Aggregated suite into: {paths.agg_dir}")
+            print(f"[sigtsc] - {paths.agg_report_csv}")
+            print(f"[sigtsc] - {paths.agg_robustness_csv}")
+            print(f"[sigtsc] - {paths.agg_winners_csv}")
+        except Exception as e:
+            failed_any = True
+            print(f"[sigtsc] Aggregation failed: {e}")
+
+        if failed_any:
+            _touch(paths.status_failed, text=f"finished_at={datetime.now().isoformat()}\n")
+        else:
+            _touch(paths.status_done, text=f"finished_at={datetime.now().isoformat()}\n")
+
+        try:
+            if paths.status_running.exists():
+                paths.status_running.unlink()
+        except Exception:
+            pass
 
     print(f"[sigtsc] Suite complete.")
-    print(f"[sigtsc] Summary CSV: {paths.summary_csv}") 
+    print(f"[sigtsc] Summary CSV: {paths.summary_csv}")

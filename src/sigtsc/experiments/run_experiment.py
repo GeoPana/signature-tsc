@@ -27,7 +27,7 @@ class RunPaths:
 
 
 def _make_run_dir(results_dir: str) -> RunPaths:
-    ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S_%f")
     run_dir = Path(results_dir) / ts
     run_dir.mkdir(parents=True, exist_ok=True)
     return RunPaths(

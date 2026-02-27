@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import csv
 import json
+from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple
-from collections import defaultdict
 
+
+# =========================
+# IO helpers
+# =========================
 
 def _iter_metrics_files(root: Path) -> Iterable[Path]:
     yield from root.glob("**/metrics.json")
@@ -35,23 +39,122 @@ def _write_csv(path: Path, rows: List[Dict[str, Any]], columns: List[str]) -> No
         w = csv.DictWriter(f, fieldnames=columns)
         w.writeheader()
         for r in rows:
-            w.writerow({c: r.get(c, None) for c in columns})
+            row_out: Dict[str, Any] = {}
+            for c in columns:
+                val = r.get(c, None)
+                if isinstance(val, dict):
+                    val = json.dumps(val, ensure_ascii=False, sort_keys=True)
+                row_out[c] = val
+            w.writerow(row_out)
 
 
-def _split_dataset_name(dataset: str) -> Tuple[str, str | None]:
+# =========================
+# Transform parsing + canonicalization
+# =========================
+
+def _parse_transform_tag(tag: str | None) -> Tuple[str | None, float | None, Dict[str, float]]:
     """
-    "NATOPS@warp=0.2,shift=0.1" -> ("NATOPS", "warp=0.2,shift=0.1")
+    Parse dataset transform tag(s).
+
+    Examples:
+      "warp=0.2" -> ("warp", 0.2, {"warp": 0.2})
+      "shift=0.05" -> ("shift", 0.05, {"shift": 0.05})
+      "warp=0.2,shift=0.1" -> ("shift+warp", None, {"warp": 0.2, "shift": 0.1})
+      None -> (None, None, {})
+
+    Returns:
+      transform_type: "warp", "shift", "shift+warp", etc (sorted keys)
+      severity: float if exactly one transform present, else None
+      params: dict of parsed transform->value
+    """
+    if tag is None:
+        return None, None, {}
+
+    tag = str(tag).strip()
+    if not tag:
+        return None, None, {}
+
+    parts = [p.strip() for p in tag.split(",") if p.strip()]
+    params: Dict[str, float] = {}
+
+    for p in parts:
+        if "=" not in p:
+            continue
+        k, v = p.split("=", 1)
+        k = k.strip().lower()
+        v = v.strip()
+        try:
+            params[k] = float(v)
+        except Exception:
+            continue
+
+    if not params:
+        return "unknown", None, {}
+
+    keys = sorted(params.keys())
+    transform_type = "+".join(keys)
+    severity = params[keys[0]] if len(keys) == 1 else None
+    return transform_type, severity, params
+
+
+def _canonical_tag(tag: str | None) -> str | None:
+    """
+    Canonicalize transform tag strings so:
+      "shift=0.10" -> "shift=0.1"
+      "warp=0.20,shift=0.05" -> "shift=0.05,warp=0.2" (sorted keys, normalized floats)
+    """
+    if tag is None:
+        return None
+    tag = str(tag).strip()
+    if not tag:
+        return None
+
+    _, _, params = _parse_transform_tag(tag)
+    if not params:
+        return tag
+
+    items: List[str] = []
+    for k in sorted(params.keys()):
+        v = params[k]
+        v_str = format(v, "g")  # 0.10->0.1, 1.0->1
+        items.append(f"{k}={v_str}")
+    return ",".join(items)
+
+
+def _split_dataset_name(dataset: str | None) -> Tuple[str, str | None]:
+    """
+    "NATOPS@warp=0.2,shift=0.1" -> ("NATOPS", "shift=0.1,warp=0.2")  (canonical tag)
     "NATOPS" -> ("NATOPS", None)
     """
     if dataset is None:
+        return "", None
+    dataset = str(dataset).strip()
+    if not dataset:
         return "", None
     if "@" not in dataset:
         return dataset, None
     base, tail = dataset.split("@", 1)
     base = base.strip()
     tail = tail.strip()
-    return base, (tail if tail else None)
+    tag = tail if tail else None
+    tag = _canonical_tag(tag)
+    return base, tag
 
+
+def _canonical_dataset_name(dataset: str | None) -> str | None:
+    if dataset is None:
+        return None
+    base, tag = _split_dataset_name(dataset)
+    if not base:
+        return None
+    if tag is None:
+        return base
+    return f"{base}@{tag}"
+
+
+# =========================
+# Aggregation
+# =========================
 
 def aggregate_results(
     results_root: str = "results",
@@ -69,8 +172,7 @@ def aggregate_results(
       3) robustness.csv: VARIANT-LEVEL robustness using variant label (fallback to model_type)
       4) robustness_winners.csv: winners (min drop) per base_dataset+transform (variant-level)
 
-    This keeps your existing report behavior intact, while making robustness
-    comparisons meaningful across signature variants.
+    Canonicalizes dataset transform tags to prevent "shift=0.10" vs "shift=0.1" duals.
     """
     root = Path(results_root)
     summary_rows: List[Dict[str, Any]] = []
@@ -84,13 +186,16 @@ def aggregate_results(
             continue
 
         timestamp = p.parent.name
-        dataset = rec.get("dataset")
+        dataset_raw = rec.get("dataset")
+        dataset = _canonical_dataset_name(dataset_raw)
+        if dataset is None:
+            continue
+
         git_commit = rec.get("git_commit")
 
         variant = rec.get("variant", None)
         model_type = _safe_get(rec, "model", "type")
 
-        # labels
         method_model = model_type
         method_variant = variant if variant else model_type
 
@@ -107,6 +212,7 @@ def aggregate_results(
         summary_rows.append(
             {
                 "dataset": dataset,
+                "dataset_raw": dataset_raw,
                 "method_model": method_model,
                 "method_variant": method_variant,
                 "model_type": model_type,
@@ -127,6 +233,7 @@ def aggregate_results(
 
     summary_cols = [
         "dataset",
+        "dataset_raw",
         "method_model",
         "method_variant",
         "model_type",
@@ -146,7 +253,7 @@ def aggregate_results(
     _write_csv(Path(out_summary_csv), summary_rows, summary_cols)
 
     # ============================================================
-    # REPORT (method-level): group by method_model (logreg vs minirocket)
+    # REPORT (method-level): group by method_model
     # ============================================================
     best_by_dataset_model: Dict[str, Dict[str, float]] = defaultdict(dict)
     for r in summary_rows:
@@ -162,7 +269,6 @@ def aggregate_results(
     datasets_model = sorted(best_by_dataset_model.keys())
     methods_model = sorted({m for ds in datasets_model for m in best_by_dataset_model[ds].keys()})
 
-    # Mean accuracy per method_model
     accs_by_method: Dict[str, List[float]] = {m: [] for m in methods_model}
     for ds in datasets_model:
         for m in methods_model:
@@ -173,7 +279,6 @@ def aggregate_results(
     for m, accs in accs_by_method.items():
         mean_acc[m] = (sum(accs) / len(accs)) if accs else None
 
-    # Average rank per method_model
     ranks_by_method: Dict[str, List[float]] = {m: [] for m in methods_model}
     for ds in datasets_model:
         items = list(best_by_dataset_model[ds].items())
@@ -193,7 +298,6 @@ def aggregate_results(
     for m, rs in ranks_by_method.items():
         avg_rank[m] = (sum(rs) / len(rs)) if rs else None
 
-    # Per-dataset gap: signature_method_name - baseline_method_name (model-level)
     gaps_rows: List[Dict[str, Any]] = []
     for ds in datasets_model:
         sig = best_by_dataset_model[ds].get(signature_method_name)
@@ -238,7 +342,7 @@ def aggregate_results(
     _write_csv(Path(out_report_csv), report_rows, report_cols)
 
     # ============================================================
-    # ROBUSTNESS (variant-level): group by method_variant (sig_* vs minirocket)
+    # ROBUSTNESS (variant-level): group by method_variant
     # ============================================================
     best_by_dataset_variant: Dict[str, Dict[str, float]] = defaultdict(dict)
     for r in summary_rows:
@@ -253,12 +357,15 @@ def aggregate_results(
 
     datasets_variant = sorted(best_by_dataset_variant.keys())
     methods_variant = sorted({m for ds in datasets_variant for m in best_by_dataset_variant[ds].keys()})
+    expected_methods = set(methods_variant)
 
-    # Index datasets by (base, transform_tag) using dataset names from variant view
-    by_base_tag: Dict[Tuple[str, str | None], str] = {}
+    by_base_tag: Dict[Tuple[str, str | None], List[str]] = defaultdict(list)
     for ds in datasets_variant:
         base, tag = _split_dataset_name(ds)
-        by_base_tag[(base, tag)] = ds
+        by_base_tag[(base, tag)].append(ds)
+
+    def _pick_one(names: List[str]) -> str:
+        return sorted(names)[0]
 
     robustness_rows: List[Dict[str, Any]] = []
     winners_rows: List[Dict[str, Any]] = []
@@ -266,39 +373,71 @@ def aggregate_results(
     base_datasets = sorted({base for (base, tag) in by_base_tag.keys() if tag is not None})
 
     for base in base_datasets:
-        clean_ds = by_base_tag.get((base, None))
-        if clean_ds is None:
+        clean_names = by_base_tag.get((base, None), [])
+        if not clean_names:
             continue
+        clean_ds = _pick_one(clean_names)
 
         tags = sorted({tag for (b, tag) in by_base_tag.keys() if b == base and tag is not None})
 
         for tag in tags:
-            transformed_ds = by_base_tag.get((base, tag))
-            if transformed_ds is None:
+            trans_names = by_base_tag.get((base, tag), [])
+            if not trans_names:
                 continue
+            transformed_ds = _pick_one(trans_names)
 
             drops: List[Tuple[str, float]] = []
+            transform_type, severity, params = _parse_transform_tag(tag)
+            methods_present: set[str] = set()
+
             for m in methods_variant:
                 clean_acc_m = best_by_dataset_variant.get(clean_ds, {}).get(m)
                 trans_acc_m = best_by_dataset_variant.get(transformed_ds, {}).get(m)
                 if clean_acc_m is None or trans_acc_m is None:
                     continue
+
                 drop = clean_acc_m - trans_acc_m
+                drop_clipped = max(0.0, drop)
+
                 robustness_rows.append(
                     {
                         "base_dataset": base,
                         "transform": tag,
+                        "transform_type": transform_type,
+                        "severity": severity,
                         "method": m,
                         "clean_dataset": clean_ds,
                         "transformed_dataset": transformed_ds,
                         "clean_acc": clean_acc_m,
                         "transformed_acc": trans_acc_m,
                         "drop_clean_minus_transformed": drop,
+                        "drop_clipped": drop_clipped,
+                        "transform_params": params,
                     }
                 )
-                drops.append((m, drop))
+                drops.append((m, drop_clipped))
+                methods_present.add(m)
 
             if not drops:
+                continue
+
+            if methods_present != expected_methods:
+                missing = sorted(expected_methods - methods_present)
+                extra = sorted(methods_present - expected_methods)
+                winners_rows.append(
+                    {
+                        "base_dataset": base,
+                        "transform": tag,
+                        "transform_type": transform_type,
+                        "severity": severity,
+                        "winner_method": "",
+                        "winner_drop_clipped": None,
+                        "n_methods_compared": len(drops),
+                        "transform_params": params,
+                        "missing_methods": "|".join(missing),
+                        "extra_methods": "|".join(extra),
+                    }
+                )
                 continue
 
             drops.sort(key=lambda x: x[1])
@@ -309,30 +448,44 @@ def aggregate_results(
                 {
                     "base_dataset": base,
                     "transform": tag,
+                    "transform_type": transform_type,
+                    "severity": severity,
                     "winner_method": "|".join(winners),
-                    "winner_drop_clean_minus_transformed": best_drop,
+                    "winner_drop_clipped": best_drop,
                     "n_methods_compared": len(drops),
+                    "transform_params": params,
+                    "missing_methods": "",
+                    "extra_methods": "",
                 }
             )
 
     robustness_cols = [
         "base_dataset",
         "transform",
+        "transform_type",
+        "severity",
         "method",
         "clean_dataset",
         "transformed_dataset",
         "clean_acc",
         "transformed_acc",
         "drop_clean_minus_transformed",
+        "drop_clipped",
+        "transform_params",
     ]
     _write_csv(Path(out_robustness_csv), robustness_rows, robustness_cols)
 
     winners_cols = [
         "base_dataset",
         "transform",
+        "transform_type",
+        "severity",
         "winner_method",
-        "winner_drop_clean_minus_transformed",
+        "winner_drop_clipped",
         "n_methods_compared",
+        "transform_params",
+        "missing_methods",
+        "extra_methods",
     ]
     _write_csv(Path(out_robustness_winners_csv), winners_rows, winners_cols)
 
