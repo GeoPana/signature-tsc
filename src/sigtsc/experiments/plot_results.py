@@ -97,6 +97,39 @@ def _filter_frames(
     return s, r, rb
 
 
+def _transform_type_from_dataset_name(dataset: str) -> str:
+    """
+    Map dataset name to transform bucket:
+      - no '@'            -> clean
+      - '@warp=...'       -> warp
+      - '@shift=...'      -> shift
+      - '@warp=...,shift' -> shift+warp
+      - unknown tags      -> other
+    """
+    s = str(dataset).strip()
+    if "@" not in s:
+        return "clean"
+
+    _, tail = s.split("@", 1)
+    keys: list[str] = []
+    for tok in tail.split(","):
+        tok = tok.strip()
+        if "=" not in tok:
+            continue
+        k = tok.split("=", 1)[0].strip().lower()
+        if k:
+            keys.append(k)
+
+    if not keys:
+        return "other"
+    keys = sorted(set(keys))
+    if keys == ["shift"]:
+        return "shift"
+    if keys == ["warp"]:
+        return "warp"
+    return "+".join(keys)
+
+
 def _wrap_vals(vals: Sequence[Any], width: int = 18) -> list[str]:
     out = []
     for v in vals:
@@ -360,64 +393,96 @@ def _plot_param_sweeps(summary_df: pd.DataFrame, out_dir: Path) -> list[Path]:
         _save_close(fig, out_path)
         out_paths.append(out_path)
 
-    # 4) explicit window fraction sensitivity
-    rows: list[dict[str, Any]] = []
-    for _, row in df.iterrows():
-        fracs = row["window_fracs_parsed"]
-        if not fracs:
-            continue
-        for frac in fracs:
+    # 4) window-fracs combo comparison
+    #    - overall mean (across all runs)
+    #    - split means by transform type (clean/shift/warp/...)
+    def _combo_label(xs: list[Any]) -> str:
+        if not xs:
+            return "global(None)"
+        vals = []
+        for x in xs:
             try:
-                frac_f = float(frac)
+                vals.append(f"{float(x):g}")
             except Exception:
-                continue
-            rows.append(
-                {
-                    "base_dataset": row["base_dataset"],
-                    "method_variant": row["method_variant"],
-                    "window_frac": frac_f,
-                    "accuracy": row["accuracy"],
-                }
-            )
+                vals.append(str(x))
+        return "[" + ", ".join(vals) + "]"
 
-    if rows:
-        wdf = pd.DataFrame(rows)
-        agg = (
-            wdf.groupby(["base_dataset", "method_variant", "window_frac"], as_index=False)["accuracy"]
-            .mean()
-            .sort_values(["base_dataset", "method_variant", "window_frac"])
+    df_combo = df.copy()
+    df_combo["window_combo"] = df_combo["window_fracs_parsed"].map(_combo_label)
+    df_combo["condition"] = df_combo["dataset"].astype(str).map(_transform_type_from_dataset_name)
+
+    # Overall means
+    overall = (
+        df_combo.groupby(["base_dataset", "window_combo"], as_index=False)["accuracy"]
+        .mean()
+        .assign(condition="overall")
+    )
+
+    # Condition-specific means
+    by_condition = (
+        df_combo.groupby(["base_dataset", "window_combo", "condition"], as_index=False)["accuracy"]
+        .mean()
+    )
+
+    combo_agg = pd.concat([overall, by_condition], ignore_index=True)
+
+    for base, g in combo_agg.groupby("base_dataset"):
+        # choose top combos by overall mean for readability
+        top_combos = (
+            g[g["condition"] == "overall"]
+            .sort_values("accuracy", ascending=False)
+            .head(8)["window_combo"]
+            .tolist()
+        )
+        if len(top_combos) < 2:
+            continue
+
+        g = g[g["window_combo"].isin(top_combos)].copy()
+
+        # ordered categories for cleaner legend / y-axis
+        cond_order = ["overall", "clean", "shift", "warp", "shift+warp", "other"]
+        present_conds = [c for c in cond_order if c in set(g["condition"])]
+        combo_order = (
+            g[g["condition"] == "overall"]
+            .sort_values("accuracy", ascending=False)["window_combo"]
+            .tolist()
         )
 
-        for base, gb in agg.groupby("base_dataset"):
-            # cap curves to reduce clutter
-            top_methods = (
-                gb.groupby("method_variant", as_index=False)["accuracy"]
-                .mean()
-                .sort_values("accuracy", ascending=False)
-                .head(5)["method_variant"]
-                .tolist()
-            )
-            gb = gb[gb["method_variant"].isin(top_methods)]
-            if gb.empty:
+        fig_h = max(5.2, 0.6 * len(combo_order) + 1.8)
+        fig, ax = plt.subplots(figsize=(11.0, fig_h))
+        sns.barplot(
+            data=g,
+            x="accuracy",
+            y="window_combo",
+            hue="condition",
+            order=combo_order,
+            hue_order=present_conds,
+            orient="h",
+            ax=ax,
+        )
+
+        # annotate each bar with its value
+        for p in ax.patches:
+            w = p.get_width()
+            if pd.isna(w) or w <= 1e-6:   # skip empty bars
                 continue
+            y = p.get_y() + p.get_height() / 2
+            ax.text(w + 0.002, y, f"{w:.3f}", va="center", ha="left", fontsize=8)
 
-            fig, ax = plt.subplots(figsize=(9.0, 5.0))
-            sns.lineplot(
-                data=gb,
-                x="window_frac",
-                y="accuracy",
-                hue="method_variant",
-                marker="o",
-                linewidth=2,
-                ax=ax,
-            )
-            ax.set_title(f"Window Fraction Sensitivity: {base}")
-            ax.set_ylabel("mean accuracy")
-            _finalize(ax, legend_out=True)
 
-            out_path = out_dir / f"param_window_frac_{base}.png"
-            _save_close(fig, out_path)
-            out_paths.append(out_path)
+        ax.set_title(f"Window-Fracs Combo Comparison (Overall + Transform Split): {base}")
+        ax.set_xlabel("mean accuracy")
+        ax.set_ylabel("window_fracs setting")
+        xmax = g["accuracy"].max() if not g.empty else 1.0
+        ax.set_xlim(0.0, min(1.05, xmax + 0.08))
+
+        _finalize(ax, legend_out=True)
+
+        out_path = out_dir / f"param_window_combo_{base}.png"
+        _save_close(fig, out_path)
+        out_paths.append(out_path)
+
+
 
     return out_paths
 
