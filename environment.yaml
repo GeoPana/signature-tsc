@@ -4,16 +4,18 @@ channels:
 dependencies:
   - python=3.11
   - pip
-  - numpy
+  - numpy<=2.2
   - scipy
   - pandas
   - scikit-learn
   - matplotlib
+  - seaborn
   - pyyaml
   - tqdm
   - rich
   - joblib
   - pytest
   - jupyterlab
+
   - pip:
       - aeon

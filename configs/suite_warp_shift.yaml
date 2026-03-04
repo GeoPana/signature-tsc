@@ -80,3 +80,9 @@ suite:
         params:
           C: 1.0
           max_iter: 5000
+  
+  plotting:
+    enabled: true
+    # If this suite already focuses on one dataset, you can omit datasets.
+    # Or keep explicit filter(s), e.g.:
+    # datasets: [NATOPS]

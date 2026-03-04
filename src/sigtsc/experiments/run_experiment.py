@@ -17,6 +17,8 @@ from sigtsc.models.baselines import train_eval_minirocket
 from sigtsc.utils.git import get_git_commit
 from sigtsc.utils.io import load_yaml, save_json, save_yaml
 from sigtsc.utils.seed import set_seed
+from sigtsc.experiments.aggregate_results import aggregate_results
+from sigtsc.experiments.plot_results import generate_plots, print_plot_summary
 
 
 @dataclass(frozen=True)
@@ -170,8 +172,52 @@ def run_one_experiment_dict(cfg: Dict[str, Any]) -> Tuple[Dict[str, Any], Path]:
     return out, paths.run_dir
 
 
+def _plot_single_run(cfg: Dict[str, Any], run_dir: Path) -> None:
+    plotting = cfg.get("plotting", {})
+    if not bool(plotting.get("enabled", False)):
+        return
+
+    datasets = plotting.get("datasets", None)
+    if isinstance(datasets, str):
+        datasets = [datasets]
+
+    # For a single run, aggregate only this run folder
+    agg_dir = run_dir / "agg"
+    agg_dir.mkdir(parents=True, exist_ok=True)
+
+    summary_csv = agg_dir / "summary.csv"
+    report_csv = agg_dir / "report.csv"
+    robustness_csv = agg_dir / "robustness.csv"
+    winners_csv = agg_dir / "robustness_winners.csv"
+
+    aggregate_results(
+        results_root=str(run_dir),
+        out_summary_csv=str(summary_csv),
+        out_report_csv=str(report_csv),
+        out_robustness_csv=str(robustness_csv),
+        out_robustness_winners_csv=str(winners_csv),
+    )
+
+    out_dir_cfg = plotting.get("out_dir", None)
+    out_dir = Path(out_dir_cfg) if out_dir_cfg else (run_dir / "plots")
+
+    plot_paths = generate_plots(
+        summary_csv=str(summary_csv),
+        report_csv=str(report_csv),
+        robustness_csv=str(robustness_csv),
+        out_dir=str(out_dir),
+        datasets=datasets,
+    )
+    print_plot_summary(plot_paths)
+
+
 def run_from_config(config_path: str) -> None:
     cfg = load_yaml(config_path)
     out, run_dir = run_one_experiment_dict(cfg)
     print(f"[sigtsc] dataset={out['dataset']} acc={out['metrics']['accuracy']:.4f}")
     print(f"[sigtsc] saved: {run_dir / 'metrics.json'}")
+
+    try:
+        _plot_single_run(cfg, run_dir)
+    except Exception as e:
+        print(f"[sigtsc] Plot generation failed: {e}")

@@ -18,3 +18,10 @@ model:
   params:
     C: 0.1
     max_iter: 5000
+
+plotting:
+  enabled: true
+  # optional filter:
+  # datasets: [NATOPS]
+  # optional custom location:
+  # out_dir: results/custom_plots

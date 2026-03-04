@@ -10,6 +10,7 @@ from typing import Any, Dict, List
 from sigtsc.experiments.run_experiment import run_one_experiment_dict
 from sigtsc.experiments.aggregate_results import aggregate_results
 from sigtsc.utils.io import load_yaml, save_json, save_yaml
+from sigtsc.experiments.plot_results import generate_plots, print_plot_summary
 
 
 @dataclass(frozen=True)
@@ -94,6 +95,31 @@ def _aggregate_suite(paths: SuitePaths) -> None:
         out_robustness_csv=str(paths.agg_robustness_csv),
         out_robustness_winners_csv=str(paths.agg_winners_csv),
     )
+
+
+def _plot_suite(paths: SuitePaths, cfg: Dict[str, Any]) -> None:
+    # support both top-level plotting and suite.plotting
+    plotting = cfg.get("plotting")
+    if plotting is None:
+        plotting = cfg.get("suite", {}).get("plotting", {})
+    if not bool(plotting.get("enabled", False)):
+        return
+
+    datasets = plotting.get("datasets", None)
+    if isinstance(datasets, str):
+        datasets = [datasets]
+
+    out_dir_cfg = plotting.get("out_dir", None)
+    out_dir = Path(out_dir_cfg) if out_dir_cfg else (paths.suite_dir / "plots")
+
+    plot_paths = generate_plots(
+        summary_csv=str(paths.agg_summary_csv),
+        report_csv=str(paths.agg_report_csv),
+        robustness_csv=str(paths.agg_robustness_csv),
+        out_dir=str(out_dir),
+        datasets=datasets,
+    )
+    print_plot_summary(plot_paths)
 
 
 def _safe_name(s: str) -> str:
@@ -216,6 +242,11 @@ def run_suite_from_config(config_path: str) -> None:
             print(f"[sigtsc] - {paths.agg_report_csv}")
             print(f"[sigtsc] - {paths.agg_robustness_csv}")
             print(f"[sigtsc] - {paths.agg_winners_csv}")
+            try:
+                _plot_suite(paths, cfg)
+            except Exception as e:
+                # Keep suite successful even if plotting fails
+                print(f"[sigtsc] Plot generation failed: {e}")
         except Exception as e:
             failed_any = True
             print(f"[sigtsc] Aggregation failed: {e}")

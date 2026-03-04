@@ -259,3 +259,10 @@ suite:
         params:
           C: 0.1
           max_iter: 5000
+  
+  plotting:
+    enabled: true
+    # optional: only plot these datasets (base or exact transformed names)
+    # datasets: [NATOPS, CharacterTrajectories]
+    # optional: override output dir
+    # out_dir: results/custom_plots

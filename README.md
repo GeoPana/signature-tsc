@@ -229,6 +229,113 @@ Planned extensions:
 
 ---
 
+## Plotting From Aggregated Results and Auto-Plotting via Config
+
+This project now supports:
+
+1. Manual plot generation from aggregated CSV files.
+2. Automatic plot generation at the end of a run/suite when enabled in config.
+
+### What gets plotted
+
+The plotting pipeline reads aggregated CSV files (`summary.csv`, `report.csv`, `robustness.csv`) and generates PNGs for:
+
+- Best accuracy heatmap by dataset and method
+- Mean method accuracy bar plot
+- Signature vs baseline dataset gap plot
+- Robustness curves (accuracy drop vs transform severity)
+- Parameter sensitivity plots, including:
+  - log-signature level
+  - `with_time`
+  - `lead_lag`
+  - number of window scales
+  - window fraction sensitivity
+
+### Manual plotting CLI
+
+Generate plots from existing aggregate files:
+
+```bash
+sigtsc plot \
+  --summary-csv results/summary.csv \
+  --report-csv results/report.csv \
+  --robustness-csv results/robustness.csv \
+  --out-dir results/plots
+```
+
+Optional dataset filtering (repeatable):
+
+```bash
+sigtsc plot --dataset NATOPS
+sigtsc plot --dataset NATOPS --dataset CharacterTrajectories
+```
+
+Filter matching behavior:
+- Exact dataset name is supported (e.g. `NATOPS@warp=0.2`)
+- Base dataset name is also supported (e.g. `NATOPS` matches transformed variants like `NATOPS@warp=...`, `NATOPS@shift=...`)
+
+### Auto-plotting from config
+
+You can enable plotting directly in run or suite config files by adding a `plotting` block:
+
+```yaml
+plotting:
+  enabled: true
+  # optional dataset filter(s)
+  # datasets: [NATOPS, CharacterTrajectories]
+  # optional custom output directory
+  # out_dir: results/custom_plots
+```
+
+#### Behavior for single runs (`sigtsc run --config <single_config>.yaml`)
+
+When `plotting.enabled: true`:
+
+1. The single run is executed and saved in its timestamped run directory.
+2. Aggregation is performed for that run directory.
+3. Plots are generated and saved to:
+   - Default: `<run_dir>/plots/`
+   - Or `plotting.out_dir` if provided.
+
+#### Behavior for suites (`sigtsc run --config <suite_config>.yaml`)
+
+When `plotting.enabled: true`:
+
+1. All suite experiments are executed.
+2. Suite-level aggregation is written to `<suite_dir>/agg/`.
+3. Plots are generated from suite aggregate CSVs and saved to:
+   - Default: `<suite_dir>/plots/`
+   - Or `plotting.out_dir` if provided.
+
+### Recommended usage pattern
+
+For reproducible workflow:
+
+1. Run suite:
+```bash
+sigtsc run --config configs/suite_stress_grid.yaml
+```
+
+2. Let config-driven auto-plotting produce suite-local plots under that suite folder.
+
+3. Optionally rerun manual plotting with specific filters:
+```bash
+sigtsc plot --summary-csv <suite_dir>/agg/summary.csv --report-csv <suite_dir>/agg/report.csv --robustness-csv <suite_dir>/agg/robustness.csv --dataset NATOPS --out-dir <suite_dir>/plots_natops
+```
+
+### Dependencies
+
+Plotting requires:
+
+- `matplotlib`
+- `seaborn`
+- `pandas`
+
+Ensure these are present in both:
+- `pyproject.toml` dependencies
+- `environment.yaml` dependencies (for conda-based environment creation)
+
+
 ## License
 
 MIT in `LICENSE`.

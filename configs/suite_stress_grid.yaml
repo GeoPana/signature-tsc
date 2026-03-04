@@ -67,3 +67,9 @@ suite:
         params:
           C: 0.1
           max_iter: 5000
+
+  plotting:
+    enabled: true
+    datasets:
+      - NATOPS
+      - CharacterTrajectories
