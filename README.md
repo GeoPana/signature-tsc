@@ -133,6 +133,26 @@ This design ensures:
 
 ---
 
+### Generating Large Suite Configs
+
+You can generate the model/window sweep suite config with:
+
+```bash
+python src/sigtsc/scripts/generate_suite_config.py
+```
+
+This writes:
+
+- `configs/suite_sig_models_grid.yaml`
+
+Then run it with:
+
+```bash
+sigtsc run --config configs/suite_sig_models_grid.yaml
+```
+
+---
+
 ## Datasets
 
 Datasets are loaded via `aeon` and use official UCR/UEA splits.

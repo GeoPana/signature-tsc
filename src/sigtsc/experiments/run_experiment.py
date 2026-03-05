@@ -7,6 +7,8 @@ from typing import Any, Dict, Tuple
 
 import numpy as np
 from sklearn.linear_model import LogisticRegression
+from sklearn.svm import LinearSVC
+from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import accuracy_score
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
@@ -51,6 +53,7 @@ def _train_eval_logreg(
         LogisticRegression(
             C=float(params.get("C", 1.0)),
             max_iter=int(params.get("max_iter", 5000)),
+            solver=str(params.get("solver", "lbfgs")),
             n_jobs=-1,
         ),
     )
@@ -58,6 +61,54 @@ def _train_eval_logreg(
     pred = clf.predict(Xte)
     acc = accuracy_score(yte, pred)
     return acc, {"accuracy": float(acc)}
+
+
+def _train_eval_linearsvc(
+    Xtr: np.ndarray,
+    ytr: np.ndarray,
+    Xte: np.ndarray,
+    yte: np.ndarray,
+    params: Dict[str, Any],
+) -> Tuple[float, Dict[str, Any]]:
+    clf = make_pipeline(
+        StandardScaler(),
+        LinearSVC(
+            C=float(params.get("C", 1.0)),
+            max_iter=int(params.get("max_iter", 10000)),
+            dual=params.get("dual", "auto"),
+        ),
+    )
+    clf.fit(Xtr, ytr)
+    pred = clf.predict(Xte)
+    acc = accuracy_score(yte, pred)
+    return float(acc), {"accuracy": float(acc)}
+
+
+def _train_eval_mlp(
+    Xtr: np.ndarray,
+    ytr: np.ndarray,
+    Xte: np.ndarray,
+    yte: np.ndarray,
+    params: Dict[str, Any],
+) -> Tuple[float, Dict[str, Any]]:
+    hls = params.get("hidden_layer_sizes", (256, 128))
+    if isinstance(hls, list):
+        hls = tuple(int(x) for x in hls)
+
+    clf = make_pipeline(
+        StandardScaler(),
+        MLPClassifier(
+            hidden_layer_sizes=hls,
+            alpha=float(params.get("alpha", 1e-4)),
+            learning_rate_init=float(params.get("learning_rate_init", 1e-3)),
+            max_iter=int(params.get("max_iter", 400)),
+            random_state=params.get("random_state", None),
+        ),
+    )
+    clf.fit(Xtr, ytr)
+    pred = clf.predict(Xte)
+    acc = accuracy_score(yte, pred)
+    return float(acc), {"accuracy": float(acc)}
 
 
 def run_one_experiment_dict(cfg: Dict[str, Any]) -> Tuple[Dict[str, Any], Path]:
@@ -140,7 +191,18 @@ def run_one_experiment_dict(cfg: Dict[str, Any]) -> Tuple[Dict[str, Any], Path]:
             pool=pool_ops,
         )
 
-        acc, metrics = _train_eval_logreg(Xtr, ytr, Xte, yte, model_params)
+        # -------- Model dispatch --------
+        if model_type == "logreg":
+            acc, metrics = _train_eval_logreg(Xtr, ytr, Xte, yte, model_params)
+        elif model_type == "linearsvc":
+            acc, metrics = _train_eval_linearsvc(Xtr, ytr, Xte, yte, model_params)
+        elif model_type == "mlp":
+            acc, metrics = _train_eval_mlp(Xtr, ytr, Xte, yte, model_params)
+        else:
+            raise ValueError(
+                f"Unknown model type '{model_type}'. "
+                "Supported: logreg, linearsvc, mlp, minirocket"
+            )
 
         # Record features used
         features_out = {

@@ -1,0 +1,476 @@
+seed: 42
+results_dir: results/suites
+suite:
+  name: sig_models_grid_test2_2026-03-05_04-42-32
+  datasets: &id006
+  - BasicMotions
+  - ArticularyWordRecognition
+  - CharacterTrajectories
+  - NATOPS
+  - Epilepsy
+  variants:
+  - name: minirocket
+    model:
+      type: minirocket
+      params:
+        n_kernels: 10000
+        max_dilations_per_kernel: 32
+        n_jobs: -1
+        random_state: 42
+  - name: logreg_L3_notime_noll_global
+    features:
+      level: 3
+      with_time: false
+      lead_lag: false
+      window_fracs: null
+      step_frac: 0.5
+      min_window: 12
+      pool:
+      - mean
+      - max
+    model: &id001
+      type: logreg
+      params:
+        C: 1.0
+        max_iter: 5000
+  - name: logreg_L3_notime_noll_w125_250_1000
+    features:
+      level: 3
+      with_time: false
+      lead_lag: false
+      window_fracs: &id002
+      - 0.125
+      - 0.25
+      - 1.0
+      step_frac: 0.5
+      min_window: 12
+      pool:
+      - mean
+      - max
+    model: *id001
+  - name: logreg_L3_notime_noll_w050_100_200
+    features:
+      level: 3
+      with_time: false
+      lead_lag: false
+      window_fracs: &id003
+      - 0.05
+      - 0.1
+      - 0.2
+      step_frac: 0.5
+      min_window: 12
+      pool:
+      - mean
+      - max
+    model: *id001
+  - name: logreg_L3_notime_ll_global
+    features:
+      level: 3
+      with_time: false
+      lead_lag: true
+      window_fracs: null
+      step_frac: 0.5
+      min_window: 12
+      pool:
+      - mean
+      - max
+    model: *id001
+  - name: logreg_L3_notime_ll_w125_250_1000
+    features:
+      level: 3
+      with_time: false
+      lead_lag: true
+      window_fracs: *id002
+      step_frac: 0.5
+      min_window: 12
+      pool:
+      - mean
+      - max
+    model: *id001
+  - name: logreg_L3_notime_ll_w050_100_200
+    features:
+      level: 3
+      with_time: false
+      lead_lag: true
+      window_fracs: *id003
+      step_frac: 0.5
+      min_window: 12
+      pool:
+      - mean
+      - max
+    model: *id001
+  - name: logreg_L3_time_noll_global
+    features:
+      level: 3
+      with_time: true
+      lead_lag: false
+      window_fracs: null
+      step_frac: 0.5
+      min_window: 12
+      pool:
+      - mean
+      - max
+    model: *id001
+  - name: logreg_L3_time_noll_w125_250_1000
+    features:
+      level: 3
+      with_time: true
+      lead_lag: false
+      window_fracs: *id002
+      step_frac: 0.5
+      min_window: 12
+      pool:
+      - mean
+      - max
+    model: *id001
+  - name: logreg_L3_time_noll_w050_100_200
+    features:
+      level: 3
+      with_time: true
+      lead_lag: false
+      window_fracs: *id003
+      step_frac: 0.5
+      min_window: 12
+      pool:
+      - mean
+      - max
+    model: *id001
+  - name: logreg_L3_time_ll_global
+    features:
+      level: 3
+      with_time: true
+      lead_lag: true
+      window_fracs: null
+      step_frac: 0.5
+      min_window: 12
+      pool:
+      - mean
+      - max
+    model: *id001
+  - name: logreg_L3_time_ll_w125_250_1000
+    features:
+      level: 3
+      with_time: true
+      lead_lag: true
+      window_fracs: *id002
+      step_frac: 0.5
+      min_window: 12
+      pool:
+      - mean
+      - max
+    model: *id001
+  - name: logreg_L3_time_ll_w050_100_200
+    features:
+      level: 3
+      with_time: true
+      lead_lag: true
+      window_fracs: *id003
+      step_frac: 0.5
+      min_window: 12
+      pool:
+      - mean
+      - max
+    model: *id001
+  - name: linearsvc_L3_notime_noll_global
+    features:
+      level: 3
+      with_time: false
+      lead_lag: false
+      window_fracs: null
+      step_frac: 0.5
+      min_window: 12
+      pool:
+      - mean
+      - max
+    model: &id004
+      type: linearsvc
+      params:
+        C: 1.0
+        max_iter: 10000
+  - name: linearsvc_L3_notime_noll_w125_250_1000
+    features:
+      level: 3
+      with_time: false
+      lead_lag: false
+      window_fracs: *id002
+      step_frac: 0.5
+      min_window: 12
+      pool:
+      - mean
+      - max
+    model: *id004
+  - name: linearsvc_L3_notime_noll_w050_100_200
+    features:
+      level: 3
+      with_time: false
+      lead_lag: false
+      window_fracs: *id003
+      step_frac: 0.5
+      min_window: 12
+      pool:
+      - mean
+      - max
+    model: *id004
+  - name: linearsvc_L3_notime_ll_global
+    features:
+      level: 3
+      with_time: false
+      lead_lag: true
+      window_fracs: null
+      step_frac: 0.5
+      min_window: 12
+      pool:
+      - mean
+      - max
+    model: *id004
+  - name: linearsvc_L3_notime_ll_w125_250_1000
+    features:
+      level: 3
+      with_time: false
+      lead_lag: true
+      window_fracs: *id002
+      step_frac: 0.5
+      min_window: 12
+      pool:
+      - mean
+      - max
+    model: *id004
+  - name: linearsvc_L3_notime_ll_w050_100_200
+    features:
+      level: 3
+      with_time: false
+      lead_lag: true
+      window_fracs: *id003
+      step_frac: 0.5
+      min_window: 12
+      pool:
+      - mean
+      - max
+    model: *id004
+  - name: linearsvc_L3_time_noll_global
+    features:
+      level: 3
+      with_time: true
+      lead_lag: false
+      window_fracs: null
+      step_frac: 0.5
+      min_window: 12
+      pool:
+      - mean
+      - max
+    model: *id004
+  - name: linearsvc_L3_time_noll_w125_250_1000
+    features:
+      level: 3
+      with_time: true
+      lead_lag: false
+      window_fracs: *id002
+      step_frac: 0.5
+      min_window: 12
+      pool:
+      - mean
+      - max
+    model: *id004
+  - name: linearsvc_L3_time_noll_w050_100_200
+    features:
+      level: 3
+      with_time: true
+      lead_lag: false
+      window_fracs: *id003
+      step_frac: 0.5
+      min_window: 12
+      pool:
+      - mean
+      - max
+    model: *id004
+  - name: linearsvc_L3_time_ll_global
+    features:
+      level: 3
+      with_time: true
+      lead_lag: true
+      window_fracs: null
+      step_frac: 0.5
+      min_window: 12
+      pool:
+      - mean
+      - max
+    model: *id004
+  - name: linearsvc_L3_time_ll_w125_250_1000
+    features:
+      level: 3
+      with_time: true
+      lead_lag: true
+      window_fracs: *id002
+      step_frac: 0.5
+      min_window: 12
+      pool:
+      - mean
+      - max
+    model: *id004
+  - name: linearsvc_L3_time_ll_w050_100_200
+    features:
+      level: 3
+      with_time: true
+      lead_lag: true
+      window_fracs: *id003
+      step_frac: 0.5
+      min_window: 12
+      pool:
+      - mean
+      - max
+    model: *id004
+  - name: mlp_L3_notime_noll_global
+    features:
+      level: 3
+      with_time: false
+      lead_lag: false
+      window_fracs: null
+      step_frac: 0.5
+      min_window: 12
+      pool:
+      - mean
+      - max
+    model: &id005
+      type: mlp
+      params:
+        hidden_layer_sizes:
+        - 256
+        - 128
+        alpha: 0.0001
+        max_iter: 400
+        random_state: 42
+  - name: mlp_L3_notime_noll_w125_250_1000
+    features:
+      level: 3
+      with_time: false
+      lead_lag: false
+      window_fracs: *id002
+      step_frac: 0.5
+      min_window: 12
+      pool:
+      - mean
+      - max
+    model: *id005
+  - name: mlp_L3_notime_noll_w050_100_200
+    features:
+      level: 3
+      with_time: false
+      lead_lag: false
+      window_fracs: *id003
+      step_frac: 0.5
+      min_window: 12
+      pool:
+      - mean
+      - max
+    model: *id005
+  - name: mlp_L3_notime_ll_global
+    features:
+      level: 3
+      with_time: false
+      lead_lag: true
+      window_fracs: null
+      step_frac: 0.5
+      min_window: 12
+      pool:
+      - mean
+      - max
+    model: *id005
+  - name: mlp_L3_notime_ll_w125_250_1000
+    features:
+      level: 3
+      with_time: false
+      lead_lag: true
+      window_fracs: *id002
+      step_frac: 0.5
+      min_window: 12
+      pool:
+      - mean
+      - max
+    model: *id005
+  - name: mlp_L3_notime_ll_w050_100_200
+    features:
+      level: 3
+      with_time: false
+      lead_lag: true
+      window_fracs: *id003
+      step_frac: 0.5
+      min_window: 12
+      pool:
+      - mean
+      - max
+    model: *id005
+  - name: mlp_L3_time_noll_global
+    features:
+      level: 3
+      with_time: true
+      lead_lag: false
+      window_fracs: null
+      step_frac: 0.5
+      min_window: 12
+      pool:
+      - mean
+      - max
+    model: *id005
+  - name: mlp_L3_time_noll_w125_250_1000
+    features:
+      level: 3
+      with_time: true
+      lead_lag: false
+      window_fracs: *id002
+      step_frac: 0.5
+      min_window: 12
+      pool:
+      - mean
+      - max
+    model: *id005
+  - name: mlp_L3_time_noll_w050_100_200
+    features:
+      level: 3
+      with_time: true
+      lead_lag: false
+      window_fracs: *id003
+      step_frac: 0.5
+      min_window: 12
+      pool:
+      - mean
+      - max
+    model: *id005
+  - name: mlp_L3_time_ll_global
+    features:
+      level: 3
+      with_time: true
+      lead_lag: true
+      window_fracs: null
+      step_frac: 0.5
+      min_window: 12
+      pool:
+      - mean
+      - max
+    model: *id005
+  - name: mlp_L3_time_ll_w125_250_1000
+    features:
+      level: 3
+      with_time: true
+      lead_lag: true
+      window_fracs: *id002
+      step_frac: 0.5
+      min_window: 12
+      pool:
+      - mean
+      - max
+    model: *id005
+  - name: mlp_L3_time_ll_w050_100_200
+    features:
+      level: 3
+      with_time: true
+      lead_lag: true
+      window_fracs: *id003
+      step_frac: 0.5
+      min_window: 12
+      pool:
+      - mean
+      - max
+    model: *id005
+  plotting:
+    enabled: true
+    datasets: *id006
