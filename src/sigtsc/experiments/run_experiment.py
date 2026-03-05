@@ -54,7 +54,7 @@ def _train_eval_logreg(
             C=float(params.get("C", 1.0)),
             max_iter=int(params.get("max_iter", 5000)),
             solver=str(params.get("solver", "lbfgs")),
-            n_jobs=-1,
+            n_jobs=int(params.get("n_jobs", 1)),
         ),
     )
     clf.fit(Xtr, ytr)

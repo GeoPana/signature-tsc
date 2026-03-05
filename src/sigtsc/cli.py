@@ -9,7 +9,13 @@ def main() -> None:
 
     p_run = sub.add_parser("run", help="Run a single experiment config or a suite config.")
     p_run.add_argument("--config", default="configs/default.yaml")
-
+    p_run.add_argument(
+        "--workers", "--jobs", "-j",
+        type=int,
+        default=1,
+        help="Parallel workers for suite runs (1 = serial).",
+    )
+    
     p_agg = sub.add_parser("aggregate", help="Aggregate metrics.json into results/*.csv")
     p_agg.add_argument("--results-root", default="results")
     p_agg.add_argument("--out-summary", default="results/summary.csv")
@@ -38,9 +44,9 @@ def main() -> None:
 
         cfg = load_yaml("configs/default.yaml")
         if "suite" in cfg:
-            run_suite_from_config("configs/default.yaml")
+            run_suite_from_config("configs/default.yaml", workers=1)
         else:
-            run_from_config("configs/default.yaml")
+            run_from_config("configs/default.yaml")   # workers ignored for single run
         return
 
     if args.cmd == "run":
@@ -49,9 +55,10 @@ def main() -> None:
 
         cfg = load_yaml(args.config)
         if "suite" in cfg:
-            run_suite_from_config(args.config)
+            run_suite_from_config(args.config, workers=max(1, args.workers))
         else:
-            run_from_config(args.config)
+            run_from_config(args.config)  # workers ignored for single run
+
 
     elif args.cmd == "aggregate":
         from sigtsc.experiments.aggregate_results import aggregate_results

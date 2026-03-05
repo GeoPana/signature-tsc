@@ -7,6 +7,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
 
+import os
+
+import concurrent.futures as cf
+
 from sigtsc.experiments.run_experiment import run_one_experiment_dict
 from sigtsc.experiments.aggregate_results import aggregate_results
 from sigtsc.utils.io import load_yaml, save_json, save_yaml
@@ -135,10 +139,18 @@ def _safe_name(s: str) -> str:
     )
 
 
-def run_suite_from_config(config_path: str) -> None:
+def run_suite_from_config(config_path: str, workers: int = 1) -> None:
     cfg = load_yaml(config_path)
     if "suite" not in cfg:
         raise ValueError("Suite config must contain a top-level 'suite' key.")
+    
+    # Normalize worker count and leave one CPU core free
+    avail = os.cpu_count() or 1
+    cap = max(1, avail - 1)   #leave one CPU core free
+    requested = max(1, int(workers))
+    if requested > cap:
+        print(f"[sigtsc] workers={requested} exceeds cap={cap} (avail={avail}, leaving one core free); clamping.")
+    workers = min(requested, cap)
 
     seed = int(cfg.get("seed", 42))
     results_dir = str(cfg.get("results_dir", "results/suites"))
@@ -161,6 +173,8 @@ def run_suite_from_config(config_path: str) -> None:
     print(f"[sigtsc] Output: {paths.suite_dir}")
 
     try:
+        # -------------------- build all jobs first --------------------
+        jobs: List[Dict[str, Any]] = []
         for ds in datasets:
             for v in variants:
                 variant_name = str(v.get("name", "variant"))
@@ -177,14 +191,28 @@ def run_suite_from_config(config_path: str) -> None:
                     "model": v.get("model", cfg.get("model", {})),
                 }
 
+                # Avoid core over-subscription when suite-level parallelism is used
+                if workers > 1 and exp_cfg.get("model", {}).get("type") == "minirocket":
+                    exp_cfg.setdefault("model", {}).setdefault("params", {})
+                    exp_cfg["model"]["params"].setdefault("n_jobs", 1)
+
+                jobs.append({"dataset": ds, "variant": variant_name, "exp_cfg": exp_cfg})
+
                 print(f"[sigtsc] -> dataset={ds} variant={variant_name}")
 
+        print(f"[sigtsc] Execution mode: {'parallel' if workers > 1 else 'serial'} (workers={workers})")
+
+        if workers <= 1:
+            for j in jobs:
+                ds = j["dataset"]
+                variant_name = j["variant"]
+                exp_cfg = j["exp_cfg"]
+                print(f"[sigtsc] -> dataset={ds} variant={variant_name}")
                 try:
                     out, run_dir = run_one_experiment_dict(exp_cfg)
                     acc = float(out["metrics"]["accuracy"])
                     features = out.get("features", {})
                     model = out.get("model", {})
-
                     summary_rows.append(
                         {
                             "suite": suite_name,
@@ -201,17 +229,7 @@ def run_suite_from_config(config_path: str) -> None:
                             "run_dir": str(run_dir),
                         }
                     )
-
-                    jsonl_lines.append(
-                        {
-                            "suite": suite_name,
-                            "dataset": ds,
-                            "variant": variant_name,
-                            **out,
-                            "run_dir": str(run_dir),
-                        }
-                    )
-
+                    jsonl_lines.append({"suite": suite_name, "dataset": ds, "variant": variant_name, **out, "run_dir": str(run_dir)})
                 except Exception as e:
                     failed_any = True
                     summary_rows.append(
@@ -227,6 +245,63 @@ def run_suite_from_config(config_path: str) -> None:
                         }
                     )
                     print(f"[sigtsc] !! failed dataset={ds} variant={variant_name}: {e}")
+        else:
+            with cf.ProcessPoolExecutor(max_workers=workers) as ex:
+                fut_to_job = {ex.submit(run_one_experiment_dict, j["exp_cfg"]): j for j in jobs}
+                for fut in cf.as_completed(fut_to_job):
+                    j = fut_to_job[fut]
+                    ds = j["dataset"]
+                    variant_name = j["variant"]
+                    exp_cfg = j["exp_cfg"]
+
+                    print(f"[sigtsc] -> dataset={ds} variant={variant_name}")
+
+                    try:
+                        out, run_dir = fut.result()
+                        acc = float(out["metrics"]["accuracy"])
+                        features = out.get("features", {})
+                        model = out.get("model", {})
+
+                        summary_rows.append(
+                            {
+                                "suite": suite_name,
+                                "dataset": ds,
+                                "variant": variant_name,
+                                "model_type": model.get("type"),
+                                "features_type": features.get("type"),
+                                "level": features.get("level"),
+                                "with_time": features.get("with_time"),
+                                "window_fracs": features.get("window_fracs"),
+                                "pool": features.get("pool"),
+                                "dim": features.get("dim"),
+                                "accuracy": acc,
+                                "run_dir": str(run_dir),
+                            }
+                        )
+
+                        jsonl_lines.append(
+                            {"suite": suite_name, 
+                             "dataset": ds, 
+                             "variant": variant_name, 
+                             **out, "run_dir": str(run_dir)
+                             }
+                        )
+                     
+                    except Exception as e:
+                        failed_any = True
+                        summary_rows.append(
+                            {
+                                "suite": suite_name,
+                                "dataset": ds,
+                                "variant": variant_name,
+                                "model_type": exp_cfg.get("model", {}).get("type"),
+                                "features_type": exp_cfg.get("features", {}).get("type", "logsig"),
+                                "accuracy": None,
+                                "run_dir": None,
+                                "error": repr(e),
+                            }
+                        )
+                        print(f"[sigtsc] !! failed dataset={ds} variant={variant_name}: {e}")
 
     finally:
         _write_summary_csv(paths.summary_csv, summary_rows)
