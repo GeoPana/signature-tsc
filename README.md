@@ -84,7 +84,7 @@ pip install -e .
 To run the default experiment:
 
 ```bash
-sigtsc --config configs/default.yaml
+sigtsc run --config configs/default.yaml
 ```
 
 This will:
@@ -133,22 +133,87 @@ This design ensures:
 
 ---
 
-### Generating Large Suite Configs
+### Generating Suite Configs
 
-You can generate the model/window sweep suite config with:
+The helper script `src/sigtsc/scripts/generate_suite_config.py` generates
+timestamped YAML suite configs for the current dataset, transform, feature,
+and model sweeps.
+
+Before running it, edit the small settings block at the top of the script:
+
+```python
+MODE = "global"       # "global" or "per_dataset"
+TAG = "dataset_sweeps"
+```
+
+Run the generator with:
 
 ```bash
 python src/sigtsc/scripts/generate_suite_config.py
 ```
 
-This writes:
+`MODE = "global"` writes one config:
 
-- `configs/suite_sig_models_grid.yaml`
+```text
+configs/sig_dataset_sweeps_<timestamp>.yaml
+```
 
-Then run it with:
+The current global sweep contains:
+
+- 5 base datasets
+- 40 suite datasets after clean, warp, shift, and combined warp/shift variants
+- 121 model/feature variants
+- 4840 total runs
+
+`MODE = "per_dataset"` writes one config per base dataset:
+
+```text
+configs/per_dataset/sig_dataset_sweeps_<dataset>_<timestamp>.yaml
+```
+
+Each per-dataset config contains:
+
+- 1 base dataset family
+- 8 suite datasets: clean, 3 warp levels, 3 shift levels, and 1 combined warp/shift setting
+- 121 model/feature variants
+- 968 total runs
+
+The generated suite datasets include transformed names such as:
+
+```text
+BasicMotions
+BasicMotions@warp=0.10
+BasicMotions@shift=0.05
+BasicMotions@warp=0.20,shift=0.10
+```
+
+The generated variants cover:
+
+- Signature models: `logreg`, `linearsvc`, `mlp`
+- Baseline model: `minirocket`
+- Signature feature options: `level`, `with_time`, `lead_lag`, and `window_fracs`
+- Model parameter grids, including `C`, `alpha`, hidden layer sizes, and MiniROCKET kernel settings
+
+Generated configs enable suite-level plotting by default and use deduplicated
+base dataset names for plot filters, so transformed warp/shift variants are
+still included in plots without repeated dataset entries.
+
+Run a generated suite with:
 
 ```bash
-sigtsc run --config configs/suite_sig_models_grid.yaml
+sigtsc run --config configs/sig_dataset_sweeps_<timestamp>.yaml
+```
+
+For per-dataset configs:
+
+```bash
+sigtsc run --config configs/per_dataset/sig_dataset_sweeps_BasicMotions_<timestamp>.yaml
+```
+
+Suite runs can also use parallel workers:
+
+```bash
+sigtsc run --config <suite_config>.yaml --workers 4
 ```
 
 ---
@@ -162,8 +227,8 @@ Example datasets:
 - BasicMotions
 - ArticularyWordRecognition
 - CharacterTrajectories
-- GunPoint
-- ItalyPowerDemand
+- NATOPS
+- Epilepsy
 
 All comparisons should use the provided train/test splits unless explicitly
 performing resampling experiments.
@@ -176,12 +241,14 @@ Currently supported (or intended as core features):
 
 - Global log-signature features
 - Optional time-channel augmentation (`with_time`)
+- Optional lead-lag augmentation (`lead_lag`)
 - Optional multiscale windowing (`window_fracs`)
 - Pooling across windows (mean / max)
+- Clean and transformed dataset variants for warp/shift robustness sweeps
 
 Feature dimensionality depends on:
 
-- Number of channels `d` (including optional time channel)
+- Number of channels `d` (including optional time channel and lead-lag augmentation)
 - Truncation level `m`
 
 Log-signature dimension can be checked via:
@@ -229,13 +296,12 @@ pre-commit run --all-files
 
 ## Roadmap
 
-Planned extensions:
+Possible extensions:
 
-- Lead–lag augmentation
-- Baseline comparisons (ROCKET / MiniROCKET)
 - Statistical significance testing across datasets
-- Hyperparameter sweeps / grid search
-- Benchmark suite runner and results aggregation
+- Additional baseline comparisons
+- Broader hyperparameter sweep presets
+- CI coverage for generated suite configs and plotting outputs
 
 ---
 
