@@ -204,8 +204,16 @@ def aggregate_results(
         features_type = _safe_get(rec, "features", "type")
         level = _safe_get(rec, "features", "level")
         with_time = _safe_get(rec, "features", "with_time")
+        basepoint = _safe_get(rec, "features", "basepoint")
         lead_lag = _safe_get(rec, "features", "lead_lag")
         dim = _safe_get(rec, "features", "dim")
+        feature_dim = _safe_get(rec, "features", "feature_dim")
+        window_type = _safe_get(rec, "features", "window_type")
+        window_aggregation = _safe_get(rec, "features", "window_aggregation")
+        num_windows = _safe_get(rec, "features", "num_windows")
+        dyadic_depth = _safe_get(rec, "features", "dyadic_depth")
+        expanding_num_windows = _safe_get(rec, "features", "expanding_num_windows")
+        min_window = _safe_get(rec, "features", "min_window")
         window_fracs = _safe_get(rec, "features", "window_fracs")
         pool = _safe_get(rec, "features", "pool")
 
@@ -220,10 +228,18 @@ def aggregate_results(
                 "features_type": features_type,
                 "level": level,
                 "with_time": with_time,
+                "basepoint": basepoint,
                 "lead_lag": lead_lag,
+                "window_type": window_type,
+                "window_aggregation": window_aggregation,
+                "num_windows": num_windows,
+                "dyadic_depth": dyadic_depth,
+                "expanding_num_windows": expanding_num_windows,
+                "min_window": min_window,
                 "window_fracs": window_fracs,
                 "pool": pool,
                 "dim": dim,
+                "feature_dim": feature_dim if feature_dim is not None else dim,
                 "accuracy": accuracy,
                 "timestamp": timestamp,
                 "git_commit": git_commit,
@@ -242,9 +258,17 @@ def aggregate_results(
         "level",
         "with_time",
         "lead_lag",
+        "basepoint",
+        "window_type",
+        "window_aggregation",
+        "num_windows",
+        "dyadic_depth",
+        "expanding_num_windows",
+        "min_window",
         "window_fracs",
         "pool",
         "dim",
+        "feature_dim",
         "accuracy",
         "timestamp",
         "git_commit",

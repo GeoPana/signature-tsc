@@ -14,8 +14,7 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
 from sigtsc.data.loaders import load_dataset
-from sigtsc.features.signature import LogSigWindowConfig, logsig_features
-from sigtsc.models.baselines import train_eval_minirocket
+from sigtsc.features.signature import LogSigWindowConfig, make_windows, path_signature_features
 from sigtsc.utils.git import get_git_commit
 from sigtsc.utils.io import load_yaml, save_json, save_yaml
 from sigtsc.utils.seed import set_seed
@@ -111,6 +110,96 @@ def _train_eval_mlp(
     return float(acc), {"accuracy": float(acc)}
 
 
+def _normalize_feature_type(feature_type: str) -> str:
+    value = str(feature_type).strip().lower()
+    aliases = {
+        "logsignature": "logsig",
+        "log_signature": "logsig",
+        "log-signature": "logsig",
+        "sig": "signature",
+    }
+    value = aliases.get(value, value)
+    if value not in {"logsig", "signature"}:
+        raise ValueError(f"Unknown feature type '{feature_type}'. Supported: logsig, signature")
+    return value
+
+
+def _build_window_config(feats: Dict[str, Any], cfg: Dict[str, Any]) -> LogSigWindowConfig | None:
+    """
+    Build a window config from either the new top-level `windowing` block or
+    the legacy feature keys (`window_fracs`, `step_frac`, `min_window`, `pool`).
+    """
+    explicit = cfg.get("windowing", feats.get("windowing", None))
+    if explicit is not None:
+        window_type = str(explicit.get("type", "global")).strip().lower()
+        default_aggregation = "pool" if window_type in {"sliding", "multiscale"} else "concat"
+        return LogSigWindowConfig(
+            type=window_type,
+            window_fracs=explicit.get("window_fracs", feats.get("window_fracs", None)),
+            step_frac=float(explicit.get("step_frac", feats.get("step_frac", 0.5))),
+            min_window=int(explicit.get("min_window", feats.get("min_window", 8))),
+            aggregation=str(explicit.get("aggregation", default_aggregation)),
+            num_windows=int(explicit.get("num_windows", 4)),
+            depth=int(explicit.get("depth", 1)),
+            initial_frac=explicit.get("initial_frac", None),
+        )
+
+    window_fracs = feats.get("window_fracs", None)
+    if window_fracs is None or len(window_fracs) == 0:
+        return None
+
+    return LogSigWindowConfig(
+        type="sliding",
+        window_fracs=window_fracs,
+        step_frac=float(feats.get("step_frac", 0.5)),
+        min_window=int(feats.get("min_window", 8)),
+        aggregation="pool",
+    )
+
+
+def _window_type(windowing: LogSigWindowConfig | None) -> str:
+    if windowing is None:
+        return "global"
+    value = str(windowing.type).strip().lower()
+    if value in {"", "none"}:
+        return "global"
+    if value in {"multiscale", "sliding_multiscale"}:
+        return "sliding"
+    if value == "hierarchical_dyadic":
+        return "dyadic"
+    return value
+
+
+def _preprocessed_length(raw_length: int, basepoint: bool, lead_lag: bool) -> int:
+    length = int(raw_length) + (1 if basepoint else 0)
+    if lead_lag:
+        return (2 * length - 1) if length >= 2 else length
+    return length
+
+
+def _window_metadata(
+    paths: list[np.ndarray],
+    windowing: LogSigWindowConfig | None,
+    basepoint: bool,
+    lead_lag: bool,
+) -> Dict[str, Any]:
+    window_type = _window_type(windowing)
+    aggregation = "single" if windowing is None else windowing.aggregation
+    min_window = None if windowing is None or window_type == "global" else windowing.min_window
+    first_length = _preprocessed_length(paths[0].shape[0], basepoint=basepoint, lead_lag=lead_lag)
+
+    return {
+        "window_type": window_type,
+        "window_aggregation": aggregation,
+        "num_windows": len(make_windows(first_length, windowing)),
+        "dyadic_depth": windowing.depth if windowing is not None and window_type == "dyadic" else None,
+        "expanding_num_windows": (
+            windowing.num_windows if windowing is not None and window_type == "expanding" else None
+        ),
+        "min_window": min_window,
+    }
+
+
 def run_one_experiment_dict(cfg: Dict[str, Any]) -> Tuple[Dict[str, Any], Path]:
     """
     Run a single experiment given a config dict.
@@ -145,6 +234,8 @@ def run_one_experiment_dict(cfg: Dict[str, Any]) -> Tuple[Dict[str, Any], Path]:
     # If model is MiniROCKET, skip signature features
     # ------------------------------------------------------------------
     if model_type == "minirocket":
+        from sigtsc.models.baselines import train_eval_minirocket
+
         res = train_eval_minirocket(Xtr_paths, ytr, Xte_paths, yte, model_params)
         acc = float(res.accuracy)
         metrics = {"accuracy": acc}
@@ -155,37 +246,39 @@ def run_one_experiment_dict(cfg: Dict[str, Any]) -> Tuple[Dict[str, Any], Path]:
         # Signature features config
         # ------------------------------------------------------------------
         feats = cfg.get("features", {})
+        feature_type = _normalize_feature_type(feats.get("type", "logsig"))
         feature_level = int(feats.get("level", 3))
         with_time = bool(feats.get("with_time", False))
+        basepoint = bool(feats.get("basepoint", False))
         lead_lag = bool(feats.get("lead_lag", False))
-        pool_ops = feats.get("pool", ["mean", "max"])
+        windowing_cfg = cfg.get("windowing", feats.get("windowing", {}))
+        pool_ops = (
+            windowing_cfg.get("pool", feats.get("pool", ["mean", "max"]))
+            if isinstance(windowing_cfg, dict)
+            else feats.get("pool", ["mean", "max"])
+        )
 
-        # IMPORTANT:
-        # window_fracs == None => GLOBAL (no windowing)
-        # window_fracs == list => multiscale windowing
-        window_fracs = feats.get("window_fracs", None)
-        if window_fracs is None:
-            windowing = None
-        else:
-            windowing = LogSigWindowConfig(
-                window_fracs=window_fracs,
-                step_frac=float(feats.get("step_frac", 0.5)),
-                min_window=int(feats.get("min_window", 8)),
-            )
+        # New configs may use top-level `windowing`; legacy configs keep
+        # window settings under `features`.
+        windowing = _build_window_config(feats, cfg)
 
         # Compute signature features
-        Xtr = logsig_features(
+        Xtr = path_signature_features(
             Xtr_paths,
             level=feature_level,
+            transform_type=feature_type,
             with_time=with_time,
+            basepoint=basepoint,
             lead_lag=lead_lag,
             windowing=windowing,
             pool=pool_ops,
         )
-        Xte = logsig_features(
+        Xte = path_signature_features(
             Xte_paths,
             level=feature_level,
+            transform_type=feature_type,
             with_time=with_time,
+            basepoint=basepoint,
             lead_lag=lead_lag,
             windowing=windowing,
             pool=pool_ops,
@@ -205,16 +298,37 @@ def run_one_experiment_dict(cfg: Dict[str, Any]) -> Tuple[Dict[str, Any], Path]:
             )
 
         # Record features used
+        window_meta = _window_metadata(
+            Xtr_paths,
+            windowing=windowing,
+            basepoint=basepoint,
+            lead_lag=lead_lag,
+        )
+        pool_out = (
+            pool_ops
+            if windowing is not None and str(windowing.aggregation).strip().lower() == "pool"
+            else None
+        )
         features_out = {
-            "type": "logsig",
+            "type": feature_type,
             "level": feature_level,
             "with_time": with_time,
+            "basepoint": basepoint,
             "lead_lag": lead_lag,
-            "window_fracs": window_fracs,  # can be None for global
-            "step_frac": feats.get("step_frac", None),
-            "min_window": feats.get("min_window", None),
-            "pool": feats.get("pool", None),
+            "window_fracs": (
+                windowing.window_fracs
+                if windowing is not None and _window_type(windowing) == "sliding"
+                else None
+            ),
+            "step_frac": (
+                windowing.step_frac
+                if windowing is not None and _window_type(windowing) == "sliding"
+                else None
+            ),
+            **window_meta,
+            "pool": pool_out,
             "dim": int(Xtr.shape[1]),
+            "feature_dim": int(Xtr.shape[1]),
         }
 
     git_commit = get_git_commit()

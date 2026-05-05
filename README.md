@@ -1,345 +1,91 @@
 # sig-tsc
 
-Time Series Classification using Signature and Log-Signature Features  
-(iisignature-based research framework)
+Time series classification with signature and log-signature features.
 
----
+`sig-tsc` is a small research framework for benchmarking signature-based
+feature extraction on multivariate time series classification tasks. It uses
+`iisignature` for signature/log-signature transforms, `aeon` for UCR/UEA
+dataset loading, and scikit-learn style classifiers for evaluation.
 
 ## Overview
 
-`sig-tsc` is a reproducible research framework for extracting signature and
-log-signature features from multivariate time series and evaluating them on
-standard Time Series Classification (TSC) benchmarks.
+The project supports experiments over:
 
-The project focuses on:
-
-- Multivariate time series
-- Phase-shift robustness
-- Time-warp invariance vs sensitivity
-- Controlled benchmarking against UCR/UEA datasets
-- Clean, reproducible experiment pipelines
-
-The implementation uses:
-
-- `iisignature` for fast log-signature computation
-- `aeon` for dataset loading (official UCR/UEA splits)
-- `scikit-learn` for classification and evaluation
-
----
-
-## Motivation
-
-The signature transform provides an algebraic and theoretically grounded
-feature map for paths. This project investigates its practical effectiveness
-as a feature extractor for time series classification.
-
-Key research questions:
-
-- Can global log-signatures compete with modern TSC methods?
-- Does multiscale windowing improve phase-shift robustness?
-- When is including time as a channel beneficial?
-- How does truncation level affect performance vs dimensionality?
-
----
+- Multivariate UCR/UEA time series datasets
+- Signature and log-signature feature extraction
+- Optional time-channel, basepoint, and lead-lag path augmentations
+- Global, sliding, expanding, and hierarchical dyadic windows
+- Window aggregation by concatenation or pooling
+- Logistic regression, linear SVM, MLP, and MiniROCKET baselines
+- Controlled dataset transforms for warp, shift, and noise robustness checks
+- Suite execution, aggregation, and plotting
 
 ## Project Structure
 
-```
+```text
 sig-tsc/
-├─ src/sigtsc/
-│  ├─ data/           # Dataset loading and preprocessing
-│  ├─ features/       # Signature / log-signature extraction
-│  ├─ models/         # Classifiers and evaluation
-│  ├─ experiments/    # Experiment runner
-│  └─ utils/          # Logging, reproducibility utilities
-├─ configs/           # YAML experiment configurations
-├─ results/           # Saved experiment outputs (not versioned)
-├─ tests/             # Unit tests
-├─ environment.yml    # Conda environment specification
-├─ pyproject.toml     # Package definition
-└─ README.md
+|- src/sigtsc/
+|  |- data/           # Dataset loading and deterministic transforms
+|  |- features/       # Signature/log-signature extraction and windowing
+|  |- models/         # Classifiers and baselines
+|  |- experiments/    # Single-run, suite, aggregation, and plotting code
+|  |- scripts/        # Config generation helpers
+|  `- utils/          # IO, seed, and git helpers
+|- configs/           # YAML experiment and suite configurations
+|- data/              # Local dataset cache
+|- results/           # Experiment outputs
+|- tests/             # Unit tests
+|- environment.yaml   # Conda environment specification
+|- pyproject.toml     # Package metadata and CLI entry point
+`- README.md
 ```
-
----
 
 ## Installation
 
-### 1) Create the Conda environment
+Create the Conda environment and install the package in editable mode:
 
 ```bash
-conda env create -f environment.yml
+conda env create -f environment.yaml
 conda activate sig-tsc
-```
-
-### 2) Install the package in editable mode
-
-```bash
 pip install -e .
 ```
 
----
+The editable install reads `pyproject.toml` and installs the Python package
+dependencies, including `iisignature`.
 
-## Running an Experiment
+## CLI
 
-To run the default experiment:
+Run the default config:
 
 ```bash
 sigtsc run --config configs/default.yaml
 ```
 
-This will:
-
-1. Load the specified dataset using official train/test splits
-2. Extract log-signature features
-3. Train the selected classifier
-4. Evaluate performance
-5. Save metrics and a configuration snapshot to:
-
-```
-results/runs/<timestamp>/
-```
-
----
-
-## Configuration System
-
-Experiments are controlled via YAML configuration files in `configs/`.
-
-Example:
-
-```yaml
-dataset:
-  name: BasicMotions
-
-features:
-  type: logsig
-  level: 3
-  with_time: false
-  window_fracs: []
-  pool: ["mean", "max"]
-
-model:
-  type: logreg
-  params:
-    C: 1.0
-    max_iter: 5000
-```
-
-This design ensures:
-
-- Clean separation between experiment settings and implementation
-- Reproducible experiment runs
-- Easy hyperparameter exploration
-
----
-
-### Generating Suite Configs
-
-The helper script `src/sigtsc/scripts/generate_suite_config.py` generates
-timestamped YAML suite configs for the current dataset, transform, feature,
-and model sweeps.
-
-Before running it, edit the small settings block at the top of the script:
-
-```python
-MODE = "global"       # "global" or "per_dataset"
-TAG = "dataset_sweeps"
-```
-
-Run the generator with:
+Run a suite config. The CLI detects suite configs by the presence of a top-level
+`suite:` block:
 
 ```bash
-python src/sigtsc/scripts/generate_suite_config.py
+sigtsc run --config configs/suite_stress_grid.yaml
 ```
 
-`MODE = "global"` writes one config:
-
-```text
-configs/sig_dataset_sweeps_<timestamp>.yaml
-```
-
-The current global sweep contains:
-
-- 5 base datasets
-- 40 suite datasets after clean, warp, shift, and combined warp/shift variants
-- 121 model/feature variants
-- 4840 total runs
-
-`MODE = "per_dataset"` writes one config per base dataset:
-
-```text
-configs/per_dataset/sig_dataset_sweeps_<dataset>_<timestamp>.yaml
-```
-
-Each per-dataset config contains:
-
-- 1 base dataset family
-- 8 suite datasets: clean, 3 warp levels, 3 shift levels, and 1 combined warp/shift setting
-- 121 model/feature variants
-- 968 total runs
-
-The generated suite datasets include transformed names such as:
-
-```text
-BasicMotions
-BasicMotions@warp=0.10
-BasicMotions@shift=0.05
-BasicMotions@warp=0.20,shift=0.10
-```
-
-The generated variants cover:
-
-- Signature models: `logreg`, `linearsvc`, `mlp`
-- Baseline model: `minirocket`
-- Signature feature options: `level`, `with_time`, `lead_lag`, and `window_fracs`
-- Model parameter grids, including `C`, `alpha`, hidden layer sizes, and MiniROCKET kernel settings
-
-Generated configs enable suite-level plotting by default and use deduplicated
-base dataset names for plot filters, so transformed warp/shift variants are
-still included in plots without repeated dataset entries.
-
-Run a generated suite with:
+Run a suite with parallel workers:
 
 ```bash
-sigtsc run --config configs/sig_dataset_sweeps_<timestamp>.yaml
+sigtsc run --config configs/suite_stress_grid.yaml --workers 4
 ```
 
-For per-dataset configs:
+Aggregate existing `metrics.json` files:
 
 ```bash
-sigtsc run --config configs/per_dataset/sig_dataset_sweeps_BasicMotions_<timestamp>.yaml
+sigtsc aggregate \
+  --results-root results \
+  --out-summary results/summary.csv \
+  --out-report results/report.csv \
+  --out-robustness results/robustness.csv \
+  --out-winners results/robustness_winners.csv
 ```
 
-Suite runs can also use parallel workers:
-
-```bash
-sigtsc run --config <suite_config>.yaml --workers 4
-```
-
----
-
-## Datasets
-
-Datasets are loaded via `aeon` and use official UCR/UEA splits.
-
-Example datasets:
-
-- BasicMotions
-- ArticularyWordRecognition
-- CharacterTrajectories
-- NATOPS
-- Epilepsy
-
-All comparisons should use the provided train/test splits unless explicitly
-performing resampling experiments.
-
----
-
-## Feature Extraction Notes
-
-Currently supported (or intended as core features):
-
-- Global log-signature features
-- Optional time-channel augmentation (`with_time`)
-- Optional lead-lag augmentation (`lead_lag`)
-- Optional multiscale windowing (`window_fracs`)
-- Pooling across windows (mean / max)
-- Clean and transformed dataset variants for warp/shift robustness sweeps
-
-Feature dimensionality depends on:
-
-- Number of channels `d` (including optional time channel and lead-lag augmentation)
-- Truncation level `m`
-
-Log-signature dimension can be checked via:
-
-```python
-import iisignature
-iisignature.logsiglength(d, m)
-```
-
----
-
-## Reproducibility
-
-Each experiment stores:
-
-- Configuration snapshot
-- Evaluation metrics
-- Timestamped run directory
-
-To reproduce a result:
-
-1. Checkout the corresponding git commit
-2. Activate the Conda environment
-3. Run with the saved config file
-
-This project is structured to support publishable, reproducible research.
-
----
-
-## Development
-
-Run tests:
-
-```bash
-pytest
-```
-
-(Optional) If you use pre-commit hooks:
-
-```bash
-pre-commit run --all-files
-```
-
----
-
-## Roadmap
-
-Possible extensions:
-
-- Statistical significance testing across datasets
-- Additional baseline comparisons
-- Broader hyperparameter sweep presets
-- CI coverage for generated suite configs and plotting outputs
-
----
-
-## Core Dependencies
-
-- aeon
-- iisignature
-- scikit-learn
-- numpy
-- scipy
-
----
-
-## Plotting From Aggregated Results and Auto-Plotting via Config
-
-This project now supports:
-
-1. Manual plot generation from aggregated CSV files.
-2. Automatic plot generation at the end of a run/suite when enabled in config.
-
-### What gets plotted
-
-The plotting pipeline reads aggregated CSV files (`summary.csv`, `report.csv`, `robustness.csv`) and generates PNGs for:
-
-- Best accuracy heatmap by dataset and method
-- Mean method accuracy bar plot
-- Signature vs baseline dataset gap plot
-- Robustness curves (accuracy drop vs transform severity)
-- Parameter sensitivity plots, including:
-  - log-signature level
-  - `with_time`
-  - `lead_lag`
-  - number of window scales
-  - window fraction sensitivity
-
-### Manual plotting CLI
-
-Generate plots from existing aggregate files:
+Generate plots from aggregate CSV files:
 
 ```bash
 sigtsc plot \
@@ -349,86 +95,347 @@ sigtsc plot \
   --out-dir results/plots
 ```
 
-Optional dataset filtering (repeatable):
+## Configuration
 
-```bash
-sigtsc plot --dataset NATOPS
-sigtsc plot --dataset NATOPS --dataset CharacterTrajectories
+Experiments are controlled by YAML files in `configs/`.
+
+Minimal signature/log-signature config:
+
+```yaml
+seed: 42
+results_dir: results/runs
+
+dataset:
+  name: BasicMotions
+
+features:
+  type: logsig        # logsig or signature
+  level: 3
+  with_time: true
+  basepoint: false
+  lead_lag: false
+
+windowing:
+  type: global
+  aggregation: concat
+
+model:
+  type: logreg
+  params:
+    C: 1.0
+    max_iter: 5000
 ```
 
-Filter matching behavior:
-- Exact dataset name is supported (e.g. `NATOPS@warp=0.2`)
-- Base dataset name is also supported (e.g. `NATOPS` matches transformed variants like `NATOPS@warp=...`, `NATOPS@shift=...`)
+The canonical windowing format is always a top-level `windowing:` block.
+Older configs that keep sliding settings under `features.window_fracs` are still
+accepted for backward compatibility, but newly generated configs use the
+homogeneous format.
 
-### Auto-plotting from config
+MiniROCKET uses raw time series and ignores signature feature settings:
 
-You can enable plotting directly in run or suite config files by adding a `plotting` block:
+```yaml
+model:
+  type: minirocket
+  params:
+    n_kernels: 10000
+    max_dilations_per_kernel: 32
+    n_jobs: -1
+    random_state: 42
+```
+
+## Windowing
+
+All signature/log-signature window modes use the same `windowing:` block.
+
+Global:
+
+```yaml
+windowing:
+  type: global
+  aggregation: concat
+```
+
+Sliding:
+
+```yaml
+windowing:
+  type: sliding
+  window_fracs: [0.125, 0.25, 1.0]
+  step_frac: 0.5
+  min_window: 8
+  aggregation: pool
+  pool: ["mean", "max"]
+```
+
+Expanding:
+
+```yaml
+windowing:
+  type: expanding
+  num_windows: 4
+  min_window: 8
+  aggregation: concat
+```
+
+Hierarchical dyadic:
+
+```yaml
+windowing:
+  type: dyadic
+  depth: 3
+  min_window: 8
+  aggregation: concat
+```
+
+Supported aggregation modes:
+
+- `concat`: compute one transform per window and concatenate window features in
+  deterministic order.
+- `pool`: pool window features with operations such as `mean`, `max`, and `std`.
+  This preserves the existing pooled sliding-window behavior.
+
+For concat aggregation, all samples in a run must produce the same number of
+windows. If variable-length samples make that impossible, use `aggregation: pool`
+or switch to a fixed-window-count mode.
+
+## Example Configs
+
+Useful checked-in configs:
+
+- `configs/default.yaml`: log-signature features on `NATOPS@warp=0.20` with
+  pooled sliding windows and logistic regression.
+- `configs/logsig_expanding.yaml`: log-signature features with expanding
+  windows.
+- `configs/logsig_dyadic.yaml`: log-signature features with dyadic windows.
+- `configs/signature_dyadic.yaml`: full signature features with dyadic windows.
+- `configs/minirocket.yaml`: MiniROCKET raw-series baseline.
+
+Run any example with:
+
+```bash
+sigtsc run --config configs/logsig_dyadic.yaml
+```
+
+## Suite Config Generation
+
+The helper script `src/sigtsc/scripts/generate_suite_config.py` generates
+timestamped suite YAML files.
+
+Edit the settings block at the top of the script:
+
+```python
+MODE = "global"       # "global" or "per_dataset"
+TAG = "dataset_sweeps"
+```
+
+Run:
+
+```bash
+python src/sigtsc/scripts/generate_suite_config.py
+```
+
+With the current script settings, `MODE = "global"` writes one suite config:
+
+```text
+configs/sig_dataset_sweeps_<timestamp>.yaml
+```
+
+Current global sweep size:
+
+- 5 base datasets
+- 40 suite datasets after clean, warp, shift, and combined warp/shift variants
+- 401 model/feature/window variants
+- 16040 total runs
+
+`MODE = "per_dataset"` writes one config per base dataset:
+
+```text
+configs/per_dataset/sig_dataset_sweeps_<dataset>_<timestamp>.yaml
+```
+
+Current per-dataset sweep size:
+
+- 1 base dataset family
+- 8 suite datasets: clean, 3 warp levels, 3 shift levels, and 1 combined
+  warp/shift setting
+- 401 model/feature/window variants
+- 3208 total runs
+
+Generated dataset names include transform tags such as:
+
+```text
+BasicMotions
+BasicMotions@warp=0.10
+BasicMotions@shift=0.05
+BasicMotions@warp=0.20,shift=0.10
+```
+
+Generated variants currently cover:
+
+- Models: `logreg`, `linearsvc`, `mlp`, and `minirocket`
+- Log-signature level 3 feature variants
+- `with_time`, `basepoint`, and `lead_lag` on/off combinations
+- Homogeneous `windowing` blocks for `global`, two `sliding` presets,
+  `expanding`, and `dyadic`
+- Model parameter grids for regularization, solver settings, MLP shape, and
+  MiniROCKET kernel settings
+
+Generated suite configs enable plotting by default. Plot dataset filters use
+deduplicated base names, so transformed variants remain included without noisy
+repeated entries.
+
+## Datasets and Transforms
+
+Datasets are loaded with `aeon` using official train/test splits. The loader
+converts cases to `(time, channels)` paths before feature extraction.
+
+Common datasets used in the configs:
+
+- BasicMotions
+- ArticularyWordRecognition
+- CharacterTrajectories
+- NATOPS
+- Epilepsy
+
+Dataset transform tags are parsed directly from the dataset name:
+
+```text
+NATOPS@warp=0.20
+NATOPS@shift=0.10
+NATOPS@warp=0.20,shift=0.10
+NATOPS@noise=0.05
+```
+
+Transforms are applied deterministically from the configured seed.
+
+## Outputs
+
+Single runs write to a timestamped directory under `results_dir`, usually:
+
+```text
+results/runs/<timestamp>/
+```
+
+Each run stores:
+
+- `config.yaml`: configuration snapshot
+- `metrics.json`: metrics, model metadata, feature metadata, and git commit
+
+Feature metadata includes fields such as:
+
+- `type`
+- `level`
+- `with_time`
+- `basepoint`
+- `lead_lag`
+- `window_type`
+- `window_aggregation`
+- `num_windows`
+- `dyadic_depth`
+- `expanding_num_windows`
+- `min_window`
+- `window_fracs`
+- `pool`
+- `dim` / `feature_dim`
+
+Suite runs write per-run outputs plus suite-level summaries and aggregate CSVs.
+
+## Aggregation and Plotting
+
+Aggregation writes:
+
+- `summary.csv`: one row per run
+- `report.csv`: method-level summaries and signature-vs-baseline gaps
+- `robustness.csv`: robustness rows by transformed dataset and method variant
+- `robustness_winners.csv`: lowest-drop method variants per transform condition
+
+Config-driven plotting is supported for both single runs and suites:
 
 ```yaml
 plotting:
   enabled: true
-  # optional dataset filter(s)
   # datasets: [NATOPS, CharacterTrajectories]
-  # optional custom output directory
   # out_dir: results/custom_plots
 ```
 
-#### Behavior for single runs (`sigtsc run --config <single_config>.yaml`)
+For single runs, plots are saved under the run directory unless `out_dir` is
+provided. For suites, aggregation is written under `<suite_dir>/agg/` and plots
+are saved under `<suite_dir>/plots/` unless `out_dir` is provided.
 
-When `plotting.enabled: true`:
+The plotting pipeline can generate:
 
-1. The single run is executed and saved in its timestamped run directory.
-2. Aggregation is performed for that run directory.
-3. Plots are generated and saved to:
-   - Default: `<run_dir>/plots/`
-   - Or `plotting.out_dir` if provided.
+- Best accuracy heatmap by dataset and method
+- Mean method accuracy bar plot
+- Signature-vs-baseline dataset gap plot
+- Robustness curves by transform severity
+- Parameter sensitivity plots for level, time channel, lead-lag, and sliding
+  window fraction settings
 
-#### Behavior for suites (`sigtsc run --config <suite_config>.yaml`)
+Dataset filters match exact names and base names. For example, `--dataset NATOPS`
+also matches `NATOPS@warp=...` and `NATOPS@shift=...`.
 
-When `plotting.enabled: true`:
+## Feature Dimension Notes
 
-1. All suite experiments are executed.
-2. Suite-level aggregation is written to `<suite_dir>/agg/`.
-3. Plots are generated from suite aggregate CSVs and saved to:
-   - Default: `<suite_dir>/plots/`
-   - Or `plotting.out_dir` if provided.
+Feature dimensionality depends on:
 
-### Recommended usage pattern
+- Transform type: `logsig` or `signature`
+- Number of channels after optional time channel and lead-lag augmentation
+- Truncation level
+- Windowing mode and number of emitted windows
+- Aggregation mode and pooling operations
 
-For reproducible workflow:
+Basepoint changes the path length, not the channel dimension. It prepends a zero
+vector after optional time augmentation and before optional lead-lag
+augmentation.
 
-1. Run suite:
-```bash
-sigtsc run --config configs/suite_stress_grid.yaml
+Log-signature and signature dimensions can be checked with:
+
+```python
+import iisignature
+
+iisignature.logsiglength(d, level)
+iisignature.siglength(d, level)
 ```
 
-2. Let config-driven auto-plotting produce suite-local plots under that suite folder.
+## Development
 
-3. Optionally rerun manual plotting with specific filters:
+Run tests:
+
 ```bash
-sigtsc plot --summary-csv <suite_dir>/agg/summary.csv --report-csv <suite_dir>/agg/report.csv --robustness-csv <suite_dir>/agg/robustness.csv --dataset NATOPS --out-dir <suite_dir>/plots_natops
+python -m pytest
 ```
 
-### Dependencies
+Compile-check the edited Python files if needed:
 
-Plotting requires:
+```bash
+python -m py_compile src/sigtsc/features/signature.py src/sigtsc/experiments/run_experiment.py
+```
 
-- `matplotlib`
-- `seaborn`
-- `pandas`
+## Core Dependencies
 
-Ensure these are present in both:
-- `pyproject.toml` dependencies
-- `environment.yaml` dependencies (for conda-based environment creation)
+The code uses these main packages. Package dependencies are managed through
+`pyproject.toml`, with `environment.yaml` providing the local Conda development
+environment.
 
+- aeon
+- iisignature
+- joblib
+- matplotlib
+- numpy
+- pandas
+- pyyaml
+- rich
+- scikit-learn
+- scipy
+- seaborn
+- tqdm
+
+`environment.yaml` provides the Conda environment used for local development.
 
 ## License
 
 MIT in `LICENSE`.
 
----
-
 ## Author
 
-Georgios Panagiotopoulos
-2026
+Georgios Panagiotopoulos, 2026

@@ -1,6 +1,7 @@
 from itertools import product
 from pathlib import Path
 from datetime import datetime
+from copy import deepcopy
 
 from sigtsc.utils.io import save_yaml
 
@@ -27,23 +28,73 @@ WARP_LEVELS = [0.10, 0.20, 0.40]      # set [] to disable
 SHIFT_LEVELS = [0.05, 0.10, 0.20]     # set [] to disable
 COMBINED_WARP_SHIFT = [(0.20, 0.10)]  # list of (warp, shift), or []
 
-# Feature sweep
-LEVELS = [3]
-WITH_TIME_OPTIONS = [False, True]
-LEAD_LAG_OPTIONS = [False, True]
-
-# name, value
-WINDOW_OPTIONS = [
-    ("global", None),
-    ("w125_250_1000", [0.125, 0.25, 1.0]),
-    ("w050_100_200", [0.05, 0.10, 0.20]),
+# Feature sweep.
+#
+# Add {"name": "sig", "type": "signature", "levels": [2]} here when you want
+# full signature variants. Keeping logsig as the default avoids very large
+# suites and high-dimensional full-signature features by accident.
+FEATURE_SPECS = [
+    {"name": "logsig", "type": "logsig", "levels": [3]},
 ]
+WITH_TIME_OPTIONS = [False, True]
+BASEPOINT_OPTIONS = [False, True]
+LEAD_LAG_OPTIONS = [False, True]
+POOL_OPTIONS = ["mean", "max"]
 
-COMMON_FEATURES = {
-    "step_frac": 0.5,
-    "min_window": 12,
-    "pool": ["mean", "max"],
-}
+# Window sweep.
+#
+# All windowing modes use the same top-level `windowing` block. Older configs
+# with `features.window_fracs` are still supported by run_experiment, but new
+# generated configs use the homogeneous format below.
+WINDOW_SPECS = [
+    {
+        "name": "global",
+        "windowing": {
+            "type": "global",
+            "aggregation": "concat",
+        },
+    },
+    {
+        "name": "slide_w125_250_1000",
+        "windowing": {
+            "type": "sliding",
+            "window_fracs": [0.125, 0.25, 1.0],
+            "step_frac": 0.5,
+            "min_window": 12,
+            "aggregation": "pool",
+            "pool": POOL_OPTIONS,
+        },
+    },
+    {
+        "name": "slide_w050_100_200",
+        "windowing": {
+            "type": "sliding",
+            "window_fracs": [0.05, 0.10, 0.20],
+            "step_frac": 0.5,
+            "min_window": 12,
+            "aggregation": "pool",
+            "pool": POOL_OPTIONS,
+        },
+    },
+    {
+        "name": "exp4",
+        "windowing": {
+            "type": "expanding",
+            "num_windows": 4,
+            "min_window": 12,
+            "aggregation": "concat",
+        },
+    },
+    {
+        "name": "dyad3",
+        "windowing": {
+            "type": "dyadic",
+            "depth": 3,
+            "min_window": 12,
+            "aggregation": "concat",
+        },
+    },
+]
 
 # Model sweeps
 # Each model has:
@@ -129,8 +180,15 @@ def short_param_tag(params: dict, keep_keys: list[str]):
     return "_".join(parts) if parts else "default"
 
 
-def feature_variant_name(level, with_time, lead_lag, w_name):
-    return f"L{level}_{'time' if with_time else 'notime'}_{'ll' if lead_lag else 'noll'}_{w_name}"
+def feature_variant_name(feature_name, level, with_time, basepoint, lead_lag, w_name):
+    return (
+        f"{feature_name}_"
+        f"L{level}_"
+        f"{'time' if with_time else 'notime'}_"
+        f"{'bp' if basepoint else 'nobp'}_"
+        f"{'ll' if lead_lag else 'noll'}_"
+        f"{w_name}"
+    )
 
 
 def dataset_family(base_dataset: str):
@@ -175,24 +233,40 @@ def build_variants():
                 model_params, ["C", "solver", "alpha", "hidden_layer_sizes", "dual"]
             )
 
-            for level, with_time, lead_lag, (w_name, w_val) in product(
-                LEVELS, WITH_TIME_OPTIONS, LEAD_LAG_OPTIONS, WINDOW_OPTIONS
-            ):
-                feats = {
-                    "level": level,
-                    "with_time": with_time,
-                    "lead_lag": lead_lag,
-                    "window_fracs": w_val,
-                    **COMMON_FEATURES,
-                }
-                fname = feature_variant_name(level, with_time, lead_lag, w_name)
-                variants.append(
-                    {
+            for feature_spec in FEATURE_SPECS:
+                feature_name = feature_spec["name"]
+                feature_type = feature_spec["type"]
+                levels = feature_spec.get("levels", [3])
+
+                for level, with_time, basepoint, lead_lag, window_spec in product(
+                    levels,
+                    WITH_TIME_OPTIONS,
+                    BASEPOINT_OPTIONS,
+                    LEAD_LAG_OPTIONS,
+                    WINDOW_SPECS,
+                ):
+                    feats = {
+                        "type": feature_type,
+                        "level": level,
+                        "with_time": with_time,
+                        "basepoint": basepoint,
+                        "lead_lag": lead_lag,
+                    }
+                    fname = feature_variant_name(
+                        feature_name,
+                        level,
+                        with_time,
+                        basepoint,
+                        lead_lag,
+                        window_spec["name"],
+                    )
+                    variant = {
                         "name": f"{m_name}_{ptag}_{fname}",
                         "features": feats,
                         "model": {"type": m_type, "params": model_params},
+                        "windowing": deepcopy(window_spec["windowing"]),
                     }
-                )
+                    variants.append(variant)
     return variants
 
 
@@ -209,7 +283,7 @@ def build_cfg(suite_name: str, datasets: list[str], variants: list[dict]):
             "datasets": datasets,
             "variants": variants,
             "plotting": {
-                "enabled": PLOTTING["enabled"],
+                **PLOTTING,
                 "datasets": base_dataset_names(datasets),
             },
         },

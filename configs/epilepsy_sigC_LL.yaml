@@ -5,12 +5,18 @@ dataset:
   name: Epilepsy
 
 features:
+  type: logsig
   level: 2
   with_time: true
+  basepoint: false
   lead_lag: true
+
+windowing:
+  type: sliding
   window_fracs: [0.03, 0.06, 0.12]
   step_frac: 0.25
   min_window: 12
+  aggregation: pool
   pool: ["mean", "max", "std"]
 
 model:

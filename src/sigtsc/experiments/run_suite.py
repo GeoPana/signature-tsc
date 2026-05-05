@@ -69,9 +69,18 @@ def _write_summary_csv(path: Path, rows: List[Dict[str, Any]]) -> None:
         "features_type",
         "level",
         "with_time",
+        "basepoint",
+        "lead_lag",
+        "window_type",
+        "window_aggregation",
+        "num_windows",
+        "dyadic_depth",
+        "expanding_num_windows",
+        "min_window",
         "window_fracs",
         "pool",
         "dim",
+        "feature_dim",
         "accuracy",
         "run_dir",
     ]
@@ -139,6 +148,26 @@ def _safe_name(s: str) -> str:
     )
 
 
+def _summary_feature_fields(features: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "features_type": features.get("type"),
+        "level": features.get("level"),
+        "with_time": features.get("with_time"),
+        "basepoint": features.get("basepoint"),
+        "lead_lag": features.get("lead_lag"),
+        "window_type": features.get("window_type"),
+        "window_aggregation": features.get("window_aggregation"),
+        "num_windows": features.get("num_windows"),
+        "dyadic_depth": features.get("dyadic_depth"),
+        "expanding_num_windows": features.get("expanding_num_windows"),
+        "min_window": features.get("min_window"),
+        "window_fracs": features.get("window_fracs"),
+        "pool": features.get("pool"),
+        "dim": features.get("dim"),
+        "feature_dim": features.get("feature_dim", features.get("dim")),
+    }
+
+
 def run_suite_from_config(config_path: str, workers: int = 1) -> None:
     cfg = load_yaml(config_path)
     if "suite" not in cfg:
@@ -190,6 +219,9 @@ def run_suite_from_config(config_path: str, workers: int = 1) -> None:
                     "features": v.get("features", cfg.get("features", {})),
                     "model": v.get("model", cfg.get("model", {})),
                 }
+                windowing_cfg = v.get("windowing", cfg.get("windowing", None))
+                if windowing_cfg is not None:
+                    exp_cfg["windowing"] = windowing_cfg
 
                 # Avoid core over-subscription when suite-level parallelism is used
                 if workers > 1 and exp_cfg.get("model", {}).get("type") == "minirocket":
@@ -219,12 +251,7 @@ def run_suite_from_config(config_path: str, workers: int = 1) -> None:
                             "dataset": ds,
                             "variant": variant_name,
                             "model_type": model.get("type"),
-                            "features_type": features.get("type"),
-                            "level": features.get("level"),
-                            "with_time": features.get("with_time"),
-                            "window_fracs": features.get("window_fracs"),
-                            "pool": features.get("pool"),
-                            "dim": features.get("dim"),
+                            **_summary_feature_fields(features),
                             "accuracy": acc,
                             "run_dir": str(run_dir),
                         }
@@ -268,12 +295,7 @@ def run_suite_from_config(config_path: str, workers: int = 1) -> None:
                                 "dataset": ds,
                                 "variant": variant_name,
                                 "model_type": model.get("type"),
-                                "features_type": features.get("type"),
-                                "level": features.get("level"),
-                                "with_time": features.get("with_time"),
-                                "window_fracs": features.get("window_fracs"),
-                                "pool": features.get("pool"),
-                                "dim": features.get("dim"),
+                                **_summary_feature_fields(features),
                                 "accuracy": acc,
                                 "run_dir": str(run_dir),
                             }

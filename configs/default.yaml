@@ -5,18 +5,18 @@ dataset:
   name: NATOPS@warp=0.20
 
 features:
+  type: logsig
   level: 4
   with_time: true
+  basepoint: false
   lead_lag: false
 
-  # Multiscale windowing:
-  # - If empty or omitted => global only.
-  # - If provided => for each frac f, window_size = max(min_window, round(f * T))
+windowing:
+  type: sliding
   window_fracs: [0.125, 0.25, 1.0]   # include 1.0 to keep global context
   step_frac: 0.5                     # stride = max(1, round(step_frac * window_size))
   min_window: 8
-
-  # Pooling across windows at each scale. Supported: mean, max, std
+  aggregation: pool
   pool: ["mean", "max"]
 
 model:
