@@ -25,6 +25,7 @@ from sigtsc.features.signature import (
     make_windows,
     path_signature_features,
     preprocess_path_streams,
+    validate_rescaling_mode,
 )
 from sigtsc.utils.git import get_git_commit
 from sigtsc.utils.io import load_yaml, save_json, save_yaml
@@ -349,6 +350,7 @@ def run_one_experiment_dict(cfg: Dict[str, Any]) -> Tuple[Dict[str, Any], Path]:
         feats = cfg.get("features", {})
         feature_type = _normalize_feature_type(feats.get("type", "logsig"))
         feature_level = int(feats.get("level", 3))
+        rescaling = validate_rescaling_mode(feats.get("rescaling", "none"))
         with_time = bool(feats.get("with_time", False))
         basepoint = bool(feats.get("basepoint", False))
         invisibility_reset = _feature_bool(feats, cfg, "invisibility_reset", False)
@@ -377,6 +379,7 @@ def run_one_experiment_dict(cfg: Dict[str, Any]) -> Tuple[Dict[str, Any], Path]:
             augmentation=augmentation,
             windowing=windowing,
             pool=pool_ops,
+            rescaling=rescaling,
         )
         Xte = path_signature_features(
             Xte_paths,
@@ -389,6 +392,7 @@ def run_one_experiment_dict(cfg: Dict[str, Any]) -> Tuple[Dict[str, Any], Path]:
             augmentation=augmentation,
             windowing=windowing,
             pool=pool_ops,
+            rescaling=rescaling,
         )
 
         # -------- Model dispatch --------
@@ -422,6 +426,7 @@ def run_one_experiment_dict(cfg: Dict[str, Any]) -> Tuple[Dict[str, Any], Path]:
         features_out = {
             "type": feature_type,
             "level": feature_level,
+            "rescaling": rescaling,
             "with_time": with_time,
             "basepoint": basepoint,
             "invisibility_reset": invisibility_reset,

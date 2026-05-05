@@ -7,6 +7,7 @@ dataset:
 features:
   type: logsig
   level: 2
+  rescaling: none
   with_time: true
   basepoint: false
   invisibility_reset: false

@@ -7,10 +7,10 @@ dataset:
 features:
   type: logsig
   level: 3
-  rescaling: none
+  rescaling: pre
   with_time: true
-  basepoint: false
-  invisibility_reset: true
+  basepoint: true
+  invisibility_reset: false
   lead_lag: false
 
 windowing:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import factorial
 from typing import List, Sequence
 
 import numpy as np
@@ -211,6 +212,105 @@ def _normalize_transform_type(transform_type: str) -> str:
     return t
 
 
+def validate_rescaling_mode(rescaling: str) -> str:
+    """Normalize and validate explicit signature-term rescaling mode."""
+    mode = str(rescaling).strip().lower()
+    if mode not in {"none", "pre", "post"}:
+        raise ValueError(
+            f"Unsupported rescaling mode: {rescaling}. Expected one of: none, pre, post."
+        )
+    return mode
+
+
+def pre_rescale_path(seg: np.ndarray, level: int) -> np.ndarray:
+    """Return a pre-signature rescaled copy of a `(T, C)` path segment."""
+    level = int(level)
+    if level <= 0:
+        raise ValueError(f"signature/logsignature level must be > 0, got {level}")
+    alpha = float(factorial(level) ** (1.0 / level))
+    return seg.astype(np.float64, copy=True) * alpha
+
+
+def signature_level_dims(input_dim: int, level: int) -> list[int]:
+    """Return full-signature block dimensions `[d, d^2, ..., d^level]`."""
+    d = int(input_dim)
+    level = int(level)
+    if d <= 0:
+        raise ValueError(f"input_dim must be > 0, got {d}")
+    if level <= 0:
+        raise ValueError(f"signature/logsignature level must be > 0, got {level}")
+    return [d**k for k in range(1, level + 1)]
+
+
+def logsignature_level_dims(input_dim: int, level: int) -> list[int]:
+    """
+    Return log-signature block dimensions using cumulative iisignature lengths.
+
+    Raises rather than guessing if reliable cumulative dimensions cannot be
+    determined from the installed iisignature version.
+    """
+    if not hasattr(iisignature, "logsiglength"):
+        raise ValueError(
+            "post rescaling for logsignature requires reliable logsignature "
+            "level dimensions, but they could not be determined."
+        )
+
+    d = int(input_dim)
+    level = int(level)
+    if d <= 0:
+        raise ValueError(f"input_dim must be > 0, got {d}")
+    if level <= 0:
+        raise ValueError(f"signature/logsignature level must be > 0, got {level}")
+
+    dims: list[int] = []
+    prev = 0
+    try:
+        for k in range(1, level + 1):
+            cur = int(iisignature.logsiglength(d, k))
+            if cur < prev:
+                raise ValueError
+            dims.append(cur - prev)
+            prev = cur
+    except Exception as exc:
+        raise ValueError(
+            "post rescaling for logsignature requires reliable logsignature "
+            "level dimensions, but they could not be determined."
+        ) from exc
+
+    return dims
+
+
+def post_rescale_features(
+    features: np.ndarray,
+    *,
+    input_dim: int,
+    level: int,
+    transform: str,
+) -> np.ndarray:
+    """Apply level-wise `k!` post-rescaling to a signature/logsignature vector."""
+    transform = _normalize_transform_type(transform)
+    dims = (
+        signature_level_dims(input_dim, level)
+        if transform == "signature"
+        else logsignature_level_dims(input_dim, level)
+    )
+
+    expected = int(sum(dims))
+    if int(features.shape[0]) != expected:
+        raise ValueError(
+            f"Cannot post-rescale {transform} features: expected length {expected} "
+            f"from input_dim={input_dim}, level={level}, got {features.shape[0]}."
+        )
+
+    out = features.astype(np.float64, copy=True)
+    start = 0
+    for k, block_dim in enumerate(dims, start=1):
+        end = start + block_dim
+        out[start:end] *= float(factorial(k))
+        start = end
+    return out
+
+
 def make_windows(n: int, config: LogSigWindowConfig | None = None) -> list[Window]:
     """
     Build deterministic `(start, end)` windows for a path length `n`.
@@ -290,6 +390,7 @@ def path_signature_features(
     augmentation: AugmentationConfig | None = None,
     windowing: LogSigWindowConfig | None = None,
     pool: Sequence[str] = ("mean", "max"),
+    rescaling: str = "none",
 ) -> np.ndarray:
     """
     Compute signature or log-signature features for each path.
@@ -309,6 +410,7 @@ def path_signature_features(
       augmentation: optional multi-stream coordinate/random projection config
       windowing: window config
       pool: pooling operations across windows (mean/max/std)
+      rescaling: explicit signature-term rescaling mode: none, pre, or post
 
     Output:
       X: (N, F) feature matrix
@@ -317,20 +419,32 @@ def path_signature_features(
         raise ValueError("No paths provided.")
 
     transform_type = _normalize_transform_type(transform_type)
+    rescaling = validate_rescaling_mode(rescaling)
     pool_ops = _validate_pool(pool)
 
     preps: dict[int, object] = {}
 
     def transform_one(seg: np.ndarray) -> np.ndarray:
+        seg_in = pre_rescale_path(seg, int(level)) if rescaling == "pre" else seg
         # iisignature expects (T, d) float array
         if transform_type == "logsig":
-            d = int(seg.shape[1])
+            d = int(seg_in.shape[1])
             prep = preps.get(d)
             if prep is None:
                 prep = iisignature.prepare(d, int(level))
                 preps[d] = prep
-            return iisignature.logsig(seg, prep)
-        return iisignature.sig(seg, int(level))
+            feat = iisignature.logsig(seg_in, prep)
+        else:
+            feat = iisignature.sig(seg_in, int(level))
+
+        if rescaling == "post":
+            feat = post_rescale_features(
+                feat,
+                input_dim=int(seg_in.shape[1]),
+                level=int(level),
+                transform=transform_type,
+            )
+        return feat
 
     window_type = "global" if windowing is None else _normalize_window_type(windowing.type)
     aggregation = "concat" if windowing is None else _normalize_aggregation(windowing.aggregation)
@@ -419,6 +533,7 @@ def logsig_features(
     augmentation: AugmentationConfig | None = None,
     windowing: LogSigWindowConfig | None = None,
     pool: Sequence[str] = ("mean", "max"),
+    rescaling: str = "none",
 ) -> np.ndarray:
     """Backward-compatible wrapper for log-signature features."""
     return path_signature_features(
@@ -432,4 +547,5 @@ def logsig_features(
         augmentation=augmentation,
         windowing=windowing,
         pool=pool,
+        rescaling=rescaling,
     )

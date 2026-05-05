@@ -68,6 +68,7 @@ def _write_summary_csv(path: Path, rows: List[Dict[str, Any]]) -> None:
         "model_type",
         "features_type",
         "level",
+        "rescaling",
         "with_time",
         "basepoint",
         "invisibility_reset",
@@ -160,6 +161,7 @@ def _summary_feature_fields(features: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "features_type": features.get("type"),
         "level": features.get("level"),
+        "rescaling": features.get("rescaling"),
         "with_time": features.get("with_time"),
         "basepoint": features.get("basepoint"),
         "invisibility_reset": features.get("invisibility_reset"),

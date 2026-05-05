@@ -36,6 +36,7 @@ COMBINED_WARP_SHIFT = [(0.20, 0.10)]  # list of (warp, shift), or []
 FEATURE_SPECS = [
     {"name": "logsig", "type": "logsig", "levels": [3]},
 ]
+RESCALING_OPTIONS = ["none"]
 WITH_TIME_OPTIONS = [False, True]
 BASEPOINT_OPTIONS = [False, True]
 LEAD_LAG_OPTIONS = [False, True]
@@ -216,10 +217,20 @@ def short_param_tag(params: dict, keep_keys: list[str]):
     return "_".join(parts) if parts else "default"
 
 
-def feature_variant_name(feature_name, level, with_time, basepoint, lead_lag, w_name, aug_name):
+def feature_variant_name(
+    feature_name,
+    level,
+    rescaling,
+    with_time,
+    basepoint,
+    lead_lag,
+    w_name,
+    aug_name,
+):
     name = (
         f"{feature_name}_"
         f"L{level}_"
+        f"rescale{rescaling}_"
         f"{'time' if with_time else 'notime'}_"
         f"{'bp' if basepoint else 'nobp'}_"
         f"{'ll' if lead_lag else 'noll'}_"
@@ -277,8 +288,17 @@ def build_variants():
                 feature_type = feature_spec["type"]
                 levels = feature_spec.get("levels", [3])
 
-                for level, with_time, basepoint, lead_lag, window_spec, augmentation_spec in product(
+                for (
+                    level,
+                    rescaling,
+                    with_time,
+                    basepoint,
+                    lead_lag,
+                    window_spec,
+                    augmentation_spec,
+                ) in product(
                     levels,
+                    RESCALING_OPTIONS,
                     WITH_TIME_OPTIONS,
                     BASEPOINT_OPTIONS,
                     LEAD_LAG_OPTIONS,
@@ -292,6 +312,7 @@ def build_variants():
                     feats = {
                         "type": feature_type,
                         "level": level,
+                        "rescaling": rescaling,
                         "with_time": with_time,
                         "basepoint": basepoint,
                         "invisibility_reset": bool(
@@ -302,6 +323,7 @@ def build_variants():
                     fname = feature_variant_name(
                         feature_name,
                         level,
+                        rescaling,
                         with_time,
                         basepoint,
                         lead_lag,

@@ -112,6 +112,7 @@ dataset:
 features:
   type: logsig        # logsig or signature
   level: 3
+  rescaling: none     # none, pre, or post
   with_time: true
   basepoint: false
   invisibility_reset: false
@@ -132,6 +133,10 @@ The canonical windowing format is always a top-level `windowing:` block.
 Older configs that keep sliding settings under `features.window_fracs` are still
 accepted for backward compatibility, but newly generated configs use the
 homogeneous format.
+
+`features.rescaling` controls explicit signature-term rescaling. Supported
+values are `none`, `pre`, and `post`. This is separate from the existing
+per-path z-normalization and from the classifier-level `StandardScaler`.
 
 MiniROCKET uses raw time series and ignores signature feature settings:
 
@@ -268,6 +273,11 @@ Useful checked-in configs:
   over singleton coordinate streams with expanding windows.
 - `configs/signature_random_projection_dyadic.yaml`: full signature features
   over random projection streams with dyadic windows.
+- `configs/logsig_dyadic_rescaling_none.yaml`: explicit no-rescaling
+  log-signature example.
+- `configs/logsig_dyadic_rescaling_pre.yaml`: pre-signature rescaling example.
+- `configs/signature_dyadic_rescaling_post.yaml`: post-signature rescaling
+  example for full signatures.
 - `configs/minirocket.yaml`: MiniROCKET raw-series baseline.
 
 Run any example with:
@@ -386,6 +396,7 @@ Feature metadata includes fields such as:
 
 - `type`
 - `level`
+- `rescaling`
 - `with_time`
 - `basepoint`
 - `invisibility_reset`

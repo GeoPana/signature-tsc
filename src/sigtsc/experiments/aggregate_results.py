@@ -203,6 +203,7 @@ def aggregate_results(
 
         features_type = _safe_get(rec, "features", "type")
         level = _safe_get(rec, "features", "level")
+        rescaling = _safe_get(rec, "features", "rescaling")
         with_time = _safe_get(rec, "features", "with_time")
         basepoint = _safe_get(rec, "features", "basepoint")
         invisibility_reset = _safe_get(rec, "features", "invisibility_reset")
@@ -239,6 +240,7 @@ def aggregate_results(
                 "variant": variant,
                 "features_type": features_type,
                 "level": level,
+                "rescaling": rescaling,
                 "with_time": with_time,
                 "basepoint": basepoint,
                 "invisibility_reset": invisibility_reset,
@@ -276,6 +278,7 @@ def aggregate_results(
         "variant",
         "features_type",
         "level",
+        "rescaling",
         "with_time",
         "lead_lag",
         "basepoint",
