@@ -248,14 +248,20 @@ def test_run_experiment_accepts_homogeneous_global_and_sliding_configs(monkeypat
     global_meta = run_experiment._window_metadata(
         Xtr,
         windowing=global_window,
+        with_time=False,
         basepoint=False,
+        invisibility_reset=False,
         lead_lag=False,
+        augmentation=run_experiment._build_augmentation_config(base_cfg["features"], base_cfg),
     )
     sliding_meta = run_experiment._window_metadata(
         Xtr,
         windowing=sliding_window,
+        with_time=False,
         basepoint=False,
+        invisibility_reset=False,
         lead_lag=False,
+        augmentation=run_experiment._build_augmentation_config(base_cfg["features"], base_cfg),
     )
 
     assert global_meta["window_type"] == "global"

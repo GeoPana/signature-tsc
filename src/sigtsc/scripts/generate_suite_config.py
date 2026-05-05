@@ -41,6 +41,42 @@ BASEPOINT_OPTIONS = [False, True]
 LEAD_LAG_OPTIONS = [False, True]
 POOL_OPTIONS = ["mean", "max"]
 
+# Augmentation sweep.
+#
+# Keep only "none" by default to avoid multiplying the suite size. Add entries
+# here when you want to benchmark projection or invisibility-reset variants.
+AUGMENTATION_SPECS = [
+    {
+        "name": "none",
+        "features": {"invisibility_reset": False},
+        "augmentation": {},
+    },
+    # {
+    #     "name": "ir",
+    #     "features": {"invisibility_reset": True},
+    #     "augmentation": {},
+    # },
+    # {
+    #     "name": "coord_pairs",
+    #     "features": {"invisibility_reset": False},
+    #     "augmentation": {
+    #         "coordinate_projection": {"enabled": True, "mode": "pairs"},
+    #     },
+    # },
+    # {
+    #     "name": "rp6x5",
+    #     "features": {"invisibility_reset": False},
+    #     "augmentation": {
+    #         "random_projection": {
+    #             "enabled": True,
+    #             "output_dim": 6,
+    #             "num_projections": 5,
+    #             "seed": 42,
+    #         },
+    #     },
+    # },
+]
+
 # Window sweep.
 #
 # All windowing modes use the same top-level `windowing` block. Older configs
@@ -180,8 +216,8 @@ def short_param_tag(params: dict, keep_keys: list[str]):
     return "_".join(parts) if parts else "default"
 
 
-def feature_variant_name(feature_name, level, with_time, basepoint, lead_lag, w_name):
-    return (
+def feature_variant_name(feature_name, level, with_time, basepoint, lead_lag, w_name, aug_name):
+    name = (
         f"{feature_name}_"
         f"L{level}_"
         f"{'time' if with_time else 'notime'}_"
@@ -189,6 +225,9 @@ def feature_variant_name(feature_name, level, with_time, basepoint, lead_lag, w_
         f"{'ll' if lead_lag else 'noll'}_"
         f"{w_name}"
     )
+    if aug_name != "none":
+        name = f"{name}_{aug_name}"
+    return name
 
 
 def dataset_family(base_dataset: str):
@@ -238,18 +277,26 @@ def build_variants():
                 feature_type = feature_spec["type"]
                 levels = feature_spec.get("levels", [3])
 
-                for level, with_time, basepoint, lead_lag, window_spec in product(
+                for level, with_time, basepoint, lead_lag, window_spec, augmentation_spec in product(
                     levels,
                     WITH_TIME_OPTIONS,
                     BASEPOINT_OPTIONS,
                     LEAD_LAG_OPTIONS,
                     WINDOW_SPECS,
+                    AUGMENTATION_SPECS,
                 ):
+                    augmentation_features = dict(augmentation_spec.get("features", {}))
+                    if basepoint and bool(augmentation_features.get("invisibility_reset", False)):
+                        continue
+
                     feats = {
                         "type": feature_type,
                         "level": level,
                         "with_time": with_time,
                         "basepoint": basepoint,
+                        "invisibility_reset": bool(
+                            augmentation_features.get("invisibility_reset", False)
+                        ),
                         "lead_lag": lead_lag,
                     }
                     fname = feature_variant_name(
@@ -259,6 +306,7 @@ def build_variants():
                         basepoint,
                         lead_lag,
                         window_spec["name"],
+                        augmentation_spec["name"],
                     )
                     variant = {
                         "name": f"{m_name}_{ptag}_{fname}",
@@ -266,6 +314,9 @@ def build_variants():
                         "model": {"type": m_type, "params": model_params},
                         "windowing": deepcopy(window_spec["windowing"]),
                     }
+                    augmentation_cfg = augmentation_spec.get("augmentation", {})
+                    if augmentation_cfg:
+                        variant["augmentation"] = deepcopy(augmentation_cfg)
                     variants.append(variant)
     return variants
 

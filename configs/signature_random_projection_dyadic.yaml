@@ -8,9 +8,16 @@ features:
   type: signature
   level: 2
   with_time: true
-  basepoint: true
+  basepoint: false
   invisibility_reset: false
   lead_lag: false
+
+augmentation:
+  random_projection:
+    enabled: true
+    output_dim: 6
+    num_projections: 5
+    seed: 42
 
 windowing:
   type: dyadic

@@ -13,7 +13,8 @@ The project supports experiments over:
 
 - Multivariate UCR/UEA time series datasets
 - Signature and log-signature feature extraction
-- Optional time-channel, basepoint, and lead-lag path augmentations
+- Optional time-channel, basepoint, invisibility-reset, and lead-lag path augmentations
+- Coordinate and random projection augmentation streams
 - Global, sliding, expanding, and hierarchical dyadic windows
 - Window aggregation by concatenation or pooling
 - Logistic regression, linear SVM, MLP, and MiniROCKET baselines
@@ -113,6 +114,7 @@ features:
   level: 3
   with_time: true
   basepoint: false
+  invisibility_reset: false
   lead_lag: false
 
 windowing:
@@ -141,6 +143,56 @@ model:
     max_dilations_per_kernel: 32
     n_jobs: -1
     random_state: 42
+```
+
+## Augmentations
+
+Signature and log-signature models use a composable augmentation pipeline.
+Inputs and outputs use `(time, channels)` orientation.
+
+The current order is:
+
+```text
+z-normalize raw value channels
+-> coordinate/random projection, if enabled
+-> time channel, if with_time=true
+-> basepoint or invisibility-reset
+-> lead-lag, if lead_lag=true
+```
+
+`basepoint` and `invisibility_reset` are mutually exclusive. Coordinate
+projection and random projection are also mutually exclusive.
+
+Invisibility-reset:
+
+```yaml
+features:
+  type: logsig
+  level: 3
+  with_time: true
+  basepoint: false
+  invisibility_reset: true
+  lead_lag: false
+```
+
+Coordinate projections create multiple deterministic streams:
+
+```yaml
+augmentation:
+  coordinate_projection:
+    enabled: true
+    mode: pairs        # singletons, pairs, or triplets
+```
+
+Random projections create deterministic projected streams from a fixed seed:
+
+```yaml
+augmentation:
+  random_projection:
+    enabled: true
+    output_dim: 6
+    num_projections: 5
+    seed: 42
 ```
 
 ## Windowing
@@ -208,6 +260,14 @@ Useful checked-in configs:
   windows.
 - `configs/logsig_dyadic.yaml`: log-signature features with dyadic windows.
 - `configs/signature_dyadic.yaml`: full signature features with dyadic windows.
+- `configs/logsig_invisibility_reset_dyadic.yaml`: log-signature features with
+  invisibility-reset and dyadic windows.
+- `configs/logsig_coordinate_pairs_global.yaml`: log-signature features over
+  coordinate-pair streams.
+- `configs/logsig_coordinate_singletons_expanding.yaml`: log-signature features
+  over singleton coordinate streams with expanding windows.
+- `configs/signature_random_projection_dyadic.yaml`: full signature features
+  over random projection streams with dyadic windows.
 - `configs/minirocket.yaml`: MiniROCKET raw-series baseline.
 
 Run any example with:
@@ -275,6 +335,7 @@ Generated variants currently cover:
 - Models: `logreg`, `linearsvc`, `mlp`, and `minirocket`
 - Log-signature level 3 feature variants
 - `with_time`, `basepoint`, and `lead_lag` on/off combinations
+- An augmentation hook with no extra projection/reset variants enabled by default
 - Homogeneous `windowing` blocks for `global`, two `sliding` presets,
   `expanding`, and `dyadic`
 - Model parameter grids for regularization, solver settings, MLP shape, and
@@ -327,10 +388,18 @@ Feature metadata includes fields such as:
 - `level`
 - `with_time`
 - `basepoint`
+- `invisibility_reset`
 - `lead_lag`
+- `coordinate_projection_mode`
+- `random_projection_output_dim`
+- `random_projection_num_projections`
+- `random_projection_seed`
+- `num_augmented_streams`
+- `channels_per_augmented_stream`
 - `window_type`
 - `window_aggregation`
 - `num_windows`
+- `total_windows`
 - `dyadic_depth`
 - `expanding_num_windows`
 - `min_window`

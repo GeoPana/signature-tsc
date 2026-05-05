@@ -6,7 +6,7 @@ from typing import List, Sequence
 import numpy as np
 import iisignature
 
-from sigtsc.features.augmentations import lead_lag
+from sigtsc.features.augmentations import AugmentationConfig, apply_augmentations
 
 
 Window = tuple[int, int]
@@ -19,28 +19,37 @@ def znormalize(path_TxC: np.ndarray, eps: float = 1e-8) -> np.ndarray:
     return (path_TxC - mu) / (sd + eps)
 
 
-def _preprocess_path(
+def preprocess_path_streams(
     path: np.ndarray,
-    with_time: bool,
-    basepoint: bool,
-    lead_lag_flag: bool,
-) -> np.ndarray:
-    # path is (T, C)
+    *,
+    with_time: bool = False,
+    basepoint: bool = False,
+    invisibility_reset: bool = False,
+    lead_lag: bool = False,
+    augmentation: AugmentationConfig | None = None,
+    normalize: bool = True,
+) -> list[np.ndarray]:
+    """
+    Normalize and augment a raw `(T, C)` value path into one or more streams.
+
+    Ordering is value normalization -> coordinate/random projection -> time
+    channel -> basepoint/invisibility-reset -> lead-lag.
+    """
+    if path.ndim != 2:
+        raise ValueError(f"Expected (T,C), got shape {path.shape}")
+
     x = path.astype(np.float64, copy=False)
+    if normalize:
+        x = znormalize(x)
 
-    if with_time:
-        T = x.shape[0]
-        t = np.linspace(0.0, 1.0, T, dtype=x.dtype).reshape(T, 1)
-        x = np.concatenate([t, x], axis=1)
-
-    if basepoint:
-        zero = np.zeros((1, x.shape[1]), dtype=x.dtype)
-        x = np.vstack([zero, x])
-
-    if lead_lag_flag:
-        x = lead_lag(x)
-
-    return x
+    return apply_augmentations(
+        x,
+        with_time=with_time,
+        basepoint=basepoint,
+        invisibility_reset_enabled=invisibility_reset,
+        lead_lag_enabled=lead_lag,
+        config=augmentation,
+    )
 
 
 def _validate_pool(pool: Sequence[str]) -> List[str]:
@@ -276,7 +285,9 @@ def path_signature_features(
     transform_type: str = "logsig",
     with_time: bool = False,
     basepoint: bool = False,
+    invisibility_reset: bool = False,
     lead_lag: bool = False,
+    augmentation: AugmentationConfig | None = None,
     windowing: LogSigWindowConfig | None = None,
     pool: Sequence[str] = ("mean", "max"),
 ) -> np.ndarray:
@@ -293,6 +304,9 @@ def path_signature_features(
       transform_type: "logsig" or "signature"
       with_time: append time channel (warp-sensitive)
       basepoint: prepend a zero vector after time augmentation and before lead-lag
+      invisibility_reset: add visibility coordinate and reset to zero
+      lead_lag: apply lead-lag after other path augmentations
+      augmentation: optional multi-stream coordinate/random projection config
       windowing: window config
       pool: pooling operations across windows (mean/max/std)
 
@@ -305,21 +319,21 @@ def path_signature_features(
     transform_type = _normalize_transform_type(transform_type)
     pool_ops = _validate_pool(pool)
 
-    # Determine final dimension AFTER with_time, basepoint, and lead_lag.
-    # Basepoint changes path length, not channel dimension.
-    base_d = paths[0].shape[1] + (1 if with_time else 0)
-    final_d = base_d * (2 if lead_lag else 1)
-
-    prep = iisignature.prepare(int(final_d), int(level)) if transform_type == "logsig" else None
+    preps: dict[int, object] = {}
 
     def transform_one(seg: np.ndarray) -> np.ndarray:
         # iisignature expects (T, d) float array
         if transform_type == "logsig":
+            d = int(seg.shape[1])
+            prep = preps.get(d)
+            if prep is None:
+                prep = iisignature.prepare(d, int(level))
+                preps[d] = prep
             return iisignature.logsig(seg, prep)
         return iisignature.sig(seg, int(level))
 
     window_type = "global" if windowing is None else _normalize_window_type(windowing.type)
-    aggregation = "pool" if windowing is None else _normalize_aggregation(windowing.aggregation)
+    aggregation = "concat" if windowing is None else _normalize_aggregation(windowing.aggregation)
     sliding_has_scales = (
         windowing is not None
         and windowing.window_fracs is not None
@@ -335,38 +349,18 @@ def path_signature_features(
     feats_all: list[np.ndarray] = []
     expected_dim: int | None = None
     for path in paths:
-        if path.ndim != 2:
-            raise ValueError(f"Expected (T,C), got shape {path.shape}")
-
-        # Start from float
-        p = path.astype(np.float64, copy=False)
-
-        # Normalize ORIGINAL channels (before time and lead-lag)
-        p = znormalize(p)
-
-        # Preprocess the normalized path
-        p = _preprocess_path(
-            p,
+        streams = preprocess_path_streams(
+            path,
             with_time=with_time,
             basepoint=basepoint,
-            lead_lag_flag=lead_lag,
+            invisibility_reset=invisibility_reset,
+            lead_lag=lead_lag,
+            augmentation=augmentation,
         )
 
-        # Sanity check (helps catch dimension mismatches early)
-        if p.shape[1] != final_d:
-            raise RuntimeError(
-                f"Preprocess produced dim={p.shape[1]} but expected dim={final_d}. "
-                f"(with_time={with_time}, basepoint={basepoint}, lead_lag={lead_lag})"
-            )
-
-        if not use_windowing:
-            feat = transform_one(p)
-            feats_all.append(feat)
-            expected_dim = len(feat) if expected_dim is None else expected_dim
-            continue
-
-        if use_legacy_sliding_pool:
-            T = p.shape[0]
+        if use_legacy_sliding_pool and len(streams) == 1:
+            p = streams[0]
+            T = int(p.shape[0])
             per_scale_feats: list[np.ndarray] = []
 
             for frac in windowing.window_fracs or []:
@@ -389,8 +383,14 @@ def path_signature_features(
 
             feat = np.concatenate(per_scale_feats, axis=0)
         else:
-            windows = make_windows(p.shape[0], windowing)
-            win_feats = [transform_one(p[start:end]) for start, end in windows]
+            win_feats: list[np.ndarray] = []
+            for stream in streams:
+                windows = (
+                    make_windows(stream.shape[0], windowing)
+                    if use_windowing
+                    else [(0, stream.shape[0])]
+                )
+                win_feats.extend(transform_one(stream[start:end]) for start, end in windows)
             W = np.vstack(win_feats)
             feat = _aggregate_window_features(W, aggregation, pool_ops)
 
@@ -414,7 +414,9 @@ def logsig_features(
     level: int = 3,
     with_time: bool = False,
     basepoint: bool = False,
+    invisibility_reset: bool = False,
     lead_lag: bool = False,
+    augmentation: AugmentationConfig | None = None,
     windowing: LogSigWindowConfig | None = None,
     pool: Sequence[str] = ("mean", "max"),
 ) -> np.ndarray:
@@ -425,7 +427,9 @@ def logsig_features(
         transform_type="logsig",
         with_time=with_time,
         basepoint=basepoint,
+        invisibility_reset=invisibility_reset,
         lead_lag=lead_lag,
+        augmentation=augmentation,
         windowing=windowing,
         pool=pool,
     )

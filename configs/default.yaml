@@ -9,6 +9,7 @@ features:
   level: 4
   with_time: true
   basepoint: false
+  invisibility_reset: false
   lead_lag: false
 
 windowing:

@@ -14,7 +14,18 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
 from sigtsc.data.loaders import load_dataset
-from sigtsc.features.signature import LogSigWindowConfig, make_windows, path_signature_features
+from sigtsc.features.augmentations import (
+    AugmentationConfig,
+    CoordinateProjectionConfig,
+    RandomProjectionConfig,
+    augmentation_metadata,
+)
+from sigtsc.features.signature import (
+    LogSigWindowConfig,
+    make_windows,
+    path_signature_features,
+    preprocess_path_streams,
+)
 from sigtsc.utils.git import get_git_commit
 from sigtsc.utils.io import load_yaml, save_json, save_yaml
 from sigtsc.utils.seed import set_seed
@@ -157,6 +168,72 @@ def _build_window_config(feats: Dict[str, Any], cfg: Dict[str, Any]) -> LogSigWi
     )
 
 
+def _as_bool(value: Any) -> bool:
+    if isinstance(value, dict):
+        value = value.get("enabled", False)
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
+def _augmentation_block(feats: Dict[str, Any], cfg: Dict[str, Any]) -> Dict[str, Any]:
+    block = cfg.get("augmentation", feats.get("augmentation", {}))
+    if block is None:
+        return {}
+    if not isinstance(block, dict):
+        raise ValueError("augmentation config must be a mapping")
+    return block
+
+
+def _feature_bool(
+    feats: Dict[str, Any],
+    cfg: Dict[str, Any],
+    key: str,
+    default: bool = False,
+) -> bool:
+    aug = _augmentation_block(feats, cfg)
+    return _as_bool(feats.get(key, aug.get(key, default)))
+
+
+def _build_augmentation_config(feats: Dict[str, Any], cfg: Dict[str, Any]) -> AugmentationConfig:
+    aug = _augmentation_block(feats, cfg)
+
+    coord_raw = aug.get("coordinate_projection", {}) or {}
+    if not isinstance(coord_raw, dict):
+        raise ValueError("augmentation.coordinate_projection must be a mapping")
+    coord_mode = str(coord_raw.get("mode", "none")).strip().lower()
+    coord_enabled = _as_bool(coord_raw.get("enabled", False)) or coord_mode not in {
+        "",
+        "none",
+        "off",
+        "false",
+    }
+
+    random_raw = aug.get("random_projection", {}) or {}
+    if not isinstance(random_raw, dict):
+        raise ValueError("augmentation.random_projection must be a mapping")
+    random_enabled = _as_bool(random_raw.get("enabled", False))
+    if random_enabled and (
+        "output_dim" not in random_raw or "num_projections" not in random_raw
+    ):
+        raise ValueError(
+            "augmentation.random_projection requires output_dim and num_projections"
+        )
+
+    return AugmentationConfig(
+        coordinate_projection=CoordinateProjectionConfig(
+            enabled=coord_enabled,
+            mode=coord_mode,
+        ),
+        random_projection=RandomProjectionConfig(
+            enabled=random_enabled,
+            output_dim=int(random_raw.get("output_dim", 1)),
+            num_projections=int(random_raw.get("num_projections", 1)),
+            seed=int(random_raw.get("seed", cfg.get("seed", 42))),
+        ),
+    )
+
+
 def _window_type(windowing: LogSigWindowConfig | None) -> str:
     if windowing is None:
         return "global"
@@ -170,33 +247,57 @@ def _window_type(windowing: LogSigWindowConfig | None) -> str:
     return value
 
 
-def _preprocessed_length(raw_length: int, basepoint: bool, lead_lag: bool) -> int:
-    length = int(raw_length) + (1 if basepoint else 0)
-    if lead_lag:
-        return (2 * length - 1) if length >= 2 else length
-    return length
-
-
 def _window_metadata(
     paths: list[np.ndarray],
     windowing: LogSigWindowConfig | None,
+    with_time: bool,
     basepoint: bool,
+    invisibility_reset: bool,
     lead_lag: bool,
+    augmentation: AugmentationConfig,
 ) -> Dict[str, Any]:
     window_type = _window_type(windowing)
     aggregation = "single" if windowing is None else windowing.aggregation
     min_window = None if windowing is None or window_type == "global" else windowing.min_window
-    first_length = _preprocessed_length(paths[0].shape[0], basepoint=basepoint, lead_lag=lead_lag)
+    streams = preprocess_path_streams(
+        paths[0],
+        with_time=with_time,
+        basepoint=basepoint,
+        invisibility_reset=invisibility_reset,
+        lead_lag=lead_lag,
+        augmentation=augmentation,
+    )
+    stream_meta = augmentation_metadata(streams)
+    windows_per_stream = [len(make_windows(s.shape[0], windowing)) for s in streams]
 
     return {
         "window_type": window_type,
         "window_aggregation": aggregation,
-        "num_windows": len(make_windows(first_length, windowing)),
+        "num_windows": windows_per_stream[0] if windows_per_stream else 0,
+        "total_windows": int(sum(windows_per_stream)),
         "dyadic_depth": windowing.depth if windowing is not None and window_type == "dyadic" else None,
         "expanding_num_windows": (
             windowing.num_windows if windowing is not None and window_type == "expanding" else None
         ),
         "min_window": min_window,
+        **stream_meta,
+    }
+
+
+def _augmentation_metadata_out(
+    augmentation: AugmentationConfig,
+) -> Dict[str, Any]:
+    coord = augmentation.coordinate_projection
+    random = augmentation.random_projection
+    return {
+        "coordinate_projection_mode": coord.mode if coord.enabled else "none",
+        "random_projection_output_dim": (
+            int(random.output_dim) if random.enabled else None
+        ),
+        "random_projection_num_projections": (
+            int(random.num_projections) if random.enabled else None
+        ),
+        "random_projection_seed": int(random.seed) if random.enabled else None,
     }
 
 
@@ -250,7 +351,9 @@ def run_one_experiment_dict(cfg: Dict[str, Any]) -> Tuple[Dict[str, Any], Path]:
         feature_level = int(feats.get("level", 3))
         with_time = bool(feats.get("with_time", False))
         basepoint = bool(feats.get("basepoint", False))
+        invisibility_reset = _feature_bool(feats, cfg, "invisibility_reset", False)
         lead_lag = bool(feats.get("lead_lag", False))
+        augmentation = _build_augmentation_config(feats, cfg)
         windowing_cfg = cfg.get("windowing", feats.get("windowing", {}))
         pool_ops = (
             windowing_cfg.get("pool", feats.get("pool", ["mean", "max"]))
@@ -269,7 +372,9 @@ def run_one_experiment_dict(cfg: Dict[str, Any]) -> Tuple[Dict[str, Any], Path]:
             transform_type=feature_type,
             with_time=with_time,
             basepoint=basepoint,
+            invisibility_reset=invisibility_reset,
             lead_lag=lead_lag,
+            augmentation=augmentation,
             windowing=windowing,
             pool=pool_ops,
         )
@@ -279,7 +384,9 @@ def run_one_experiment_dict(cfg: Dict[str, Any]) -> Tuple[Dict[str, Any], Path]:
             transform_type=feature_type,
             with_time=with_time,
             basepoint=basepoint,
+            invisibility_reset=invisibility_reset,
             lead_lag=lead_lag,
+            augmentation=augmentation,
             windowing=windowing,
             pool=pool_ops,
         )
@@ -301,8 +408,11 @@ def run_one_experiment_dict(cfg: Dict[str, Any]) -> Tuple[Dict[str, Any], Path]:
         window_meta = _window_metadata(
             Xtr_paths,
             windowing=windowing,
+            with_time=with_time,
             basepoint=basepoint,
+            invisibility_reset=invisibility_reset,
             lead_lag=lead_lag,
+            augmentation=augmentation,
         )
         pool_out = (
             pool_ops
@@ -314,7 +424,9 @@ def run_one_experiment_dict(cfg: Dict[str, Any]) -> Tuple[Dict[str, Any], Path]:
             "level": feature_level,
             "with_time": with_time,
             "basepoint": basepoint,
+            "invisibility_reset": invisibility_reset,
             "lead_lag": lead_lag,
+            **_augmentation_metadata_out(augmentation),
             "window_fracs": (
                 windowing.window_fracs
                 if windowing is not None and _window_type(windowing) == "sliding"

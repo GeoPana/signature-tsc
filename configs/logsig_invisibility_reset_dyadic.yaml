@@ -5,11 +5,11 @@ dataset:
   name: BasicMotions
 
 features:
-  type: signature
-  level: 2
+  type: logsig
+  level: 3
   with_time: true
-  basepoint: true
-  invisibility_reset: false
+  basepoint: false
+  invisibility_reset: true
   lead_lag: false
 
 windowing:

@@ -5,17 +5,20 @@ dataset:
   name: BasicMotions
 
 features:
-  type: signature
-  level: 2
+  type: logsig
+  level: 3
   with_time: true
-  basepoint: true
+  basepoint: false
   invisibility_reset: false
   lead_lag: false
 
+augmentation:
+  coordinate_projection:
+    enabled: true
+    mode: pairs
+
 windowing:
-  type: dyadic
-  depth: 3
-  min_window: 8
+  type: global
   aggregation: concat
 
 model:

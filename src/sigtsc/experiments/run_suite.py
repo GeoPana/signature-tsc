@@ -70,10 +70,18 @@ def _write_summary_csv(path: Path, rows: List[Dict[str, Any]]) -> None:
         "level",
         "with_time",
         "basepoint",
+        "invisibility_reset",
         "lead_lag",
+        "coordinate_projection_mode",
+        "random_projection_output_dim",
+        "random_projection_num_projections",
+        "random_projection_seed",
+        "num_augmented_streams",
+        "channels_per_augmented_stream",
         "window_type",
         "window_aggregation",
         "num_windows",
+        "total_windows",
         "dyadic_depth",
         "expanding_num_windows",
         "min_window",
@@ -154,10 +162,18 @@ def _summary_feature_fields(features: Dict[str, Any]) -> Dict[str, Any]:
         "level": features.get("level"),
         "with_time": features.get("with_time"),
         "basepoint": features.get("basepoint"),
+        "invisibility_reset": features.get("invisibility_reset"),
         "lead_lag": features.get("lead_lag"),
+        "coordinate_projection_mode": features.get("coordinate_projection_mode"),
+        "random_projection_output_dim": features.get("random_projection_output_dim"),
+        "random_projection_num_projections": features.get("random_projection_num_projections"),
+        "random_projection_seed": features.get("random_projection_seed"),
+        "num_augmented_streams": features.get("num_augmented_streams"),
+        "channels_per_augmented_stream": features.get("channels_per_augmented_stream"),
         "window_type": features.get("window_type"),
         "window_aggregation": features.get("window_aggregation"),
         "num_windows": features.get("num_windows"),
+        "total_windows": features.get("total_windows"),
         "dyadic_depth": features.get("dyadic_depth"),
         "expanding_num_windows": features.get("expanding_num_windows"),
         "min_window": features.get("min_window"),
@@ -222,6 +238,9 @@ def run_suite_from_config(config_path: str, workers: int = 1) -> None:
                 windowing_cfg = v.get("windowing", cfg.get("windowing", None))
                 if windowing_cfg is not None:
                     exp_cfg["windowing"] = windowing_cfg
+                augmentation_cfg = v.get("augmentation", cfg.get("augmentation", None))
+                if augmentation_cfg is not None:
+                    exp_cfg["augmentation"] = augmentation_cfg
 
                 # Avoid core over-subscription when suite-level parallelism is used
                 if workers > 1 and exp_cfg.get("model", {}).get("type") == "minirocket":

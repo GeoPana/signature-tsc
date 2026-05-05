@@ -205,12 +205,24 @@ def aggregate_results(
         level = _safe_get(rec, "features", "level")
         with_time = _safe_get(rec, "features", "with_time")
         basepoint = _safe_get(rec, "features", "basepoint")
+        invisibility_reset = _safe_get(rec, "features", "invisibility_reset")
         lead_lag = _safe_get(rec, "features", "lead_lag")
+        coordinate_projection_mode = _safe_get(rec, "features", "coordinate_projection_mode")
+        random_projection_output_dim = _safe_get(rec, "features", "random_projection_output_dim")
+        random_projection_num_projections = _safe_get(
+            rec, "features", "random_projection_num_projections"
+        )
+        random_projection_seed = _safe_get(rec, "features", "random_projection_seed")
+        num_augmented_streams = _safe_get(rec, "features", "num_augmented_streams")
+        channels_per_augmented_stream = _safe_get(
+            rec, "features", "channels_per_augmented_stream"
+        )
         dim = _safe_get(rec, "features", "dim")
         feature_dim = _safe_get(rec, "features", "feature_dim")
         window_type = _safe_get(rec, "features", "window_type")
         window_aggregation = _safe_get(rec, "features", "window_aggregation")
         num_windows = _safe_get(rec, "features", "num_windows")
+        total_windows = _safe_get(rec, "features", "total_windows")
         dyadic_depth = _safe_get(rec, "features", "dyadic_depth")
         expanding_num_windows = _safe_get(rec, "features", "expanding_num_windows")
         min_window = _safe_get(rec, "features", "min_window")
@@ -229,10 +241,18 @@ def aggregate_results(
                 "level": level,
                 "with_time": with_time,
                 "basepoint": basepoint,
+                "invisibility_reset": invisibility_reset,
                 "lead_lag": lead_lag,
+                "coordinate_projection_mode": coordinate_projection_mode,
+                "random_projection_output_dim": random_projection_output_dim,
+                "random_projection_num_projections": random_projection_num_projections,
+                "random_projection_seed": random_projection_seed,
+                "num_augmented_streams": num_augmented_streams,
+                "channels_per_augmented_stream": channels_per_augmented_stream,
                 "window_type": window_type,
                 "window_aggregation": window_aggregation,
                 "num_windows": num_windows,
+                "total_windows": total_windows,
                 "dyadic_depth": dyadic_depth,
                 "expanding_num_windows": expanding_num_windows,
                 "min_window": min_window,
@@ -259,9 +279,17 @@ def aggregate_results(
         "with_time",
         "lead_lag",
         "basepoint",
+        "invisibility_reset",
+        "coordinate_projection_mode",
+        "random_projection_output_dim",
+        "random_projection_num_projections",
+        "random_projection_seed",
+        "num_augmented_streams",
+        "channels_per_augmented_stream",
         "window_type",
         "window_aggregation",
         "num_windows",
+        "total_windows",
         "dyadic_depth",
         "expanding_num_windows",
         "min_window",
